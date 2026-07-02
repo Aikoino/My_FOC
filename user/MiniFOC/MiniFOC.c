@@ -34,7 +34,6 @@ static void MiniFOC_CurrentLoop(void);
 static void MiniFOC_SpeedLoop(void);
 static void MiniFOC_ApplyPWM(float pwm_a, float pwm_b, float pwm_c);
 static void MiniFOC_UpdateSensor(void);
-static void MiniFOC_CurrentCalibration(void);
 
 /* ========== 初始化函数 ========== */
 
