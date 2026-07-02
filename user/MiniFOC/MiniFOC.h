@@ -73,6 +73,11 @@ typedef struct {
     float Id, Iq;                    /* d轴/q轴电流 */
     float Vd, Vq;                    /* d轴/q轴电压 */
 
+    /* 电流采样零点校准 */
+    float current_offset_u;          /* U相电流偏移 (A) */
+    float current_offset_v;          /* V相电流偏移 (A) */
+    float current_offset_w;          /* W相电流偏移 (A) */
+
     /* PID控制器 */
     PID_Controller_t current_pid;    /* 电流环PID */
     PID_Controller_t speed_pid;      /* 速度环PID */

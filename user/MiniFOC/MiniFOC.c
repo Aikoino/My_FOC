@@ -34,6 +34,7 @@ static void MiniFOC_CurrentLoop(void);
 static void MiniFOC_SpeedLoop(void);
 static void MiniFOC_ApplyPWM(float pwm_a, float pwm_b, float pwm_c);
 static void MiniFOC_UpdateSensor(void);
+static void MiniFOC_CurrentCalibration(void);
 
 /* ========== 初始化函数 ========== */
 
@@ -66,6 +67,9 @@ void MiniFOC_Init(void)
 
     /* 初始化ADC（如果尚未初始化）*/
     BSP_ADC_Init();
+
+    /* 电流采样零点校准 (电机必须静止！) */
+    MiniFOC_CurrentCalibration();
 
     /* 启停PWM输出（输出全0）*/
     MiniFOC_ApplyPWM(0.0f, 0.0f, 0.0f);
@@ -106,10 +110,15 @@ void MiniFOC_HighFreqLoop(void)
   */
 static void MiniFOC_CurrentLoop(void)
 {
-    /* 1. 读取三相电流 */
-    foc.phase_current_u = BSP_ADC_GetCurrentU();
-    foc.phase_current_v = BSP_ADC_GetCurrentV();
-    foc.phase_current_w = BSP_ADC_GetCurrentW();
+    /* 1. 读取三相电流 (零点校准后) */
+    float Iu = BSP_ADC_GetCurrentU() - foc.current_offset_u;
+    float Iv = BSP_ADC_GetCurrentV() - foc.current_offset_v;
+    float Iw = BSP_ADC_GetCurrentW() - foc.current_offset_w;
+
+    /* 保存到结构体 */
+    foc.phase_current_u = Iu;
+    foc.phase_current_v = Iv;
+    foc.phase_current_w = Iw;
 
     /* 2. Clark变换 (abc → αβ) */
     float ialpha, ibeta;
@@ -263,4 +272,47 @@ void MiniFOC_FaultHandler(uint32_t fault_code)
         case 0x03:  /* 过压 */
             break;
     }
+}
+
+/**
+  * @brief  电流采样零点校准
+  * @note   电机必须处于静止状态，上电时调用一次
+  */
+static void MiniFOC_CurrentCalibration(void)
+{
+    /* 电流零点（ADC 原始值）*/
+    static float current_offset_u = 0.0f;
+    static float current_offset_v = 0.0f;
+    static float current_offset_w = 0.0f;
+
+    /* 采样次数 */
+    #define CALIBRATION_SAMPLES  100
+
+    /* 累计采样值 */
+    int32_t sum_u = 0, sum_v = 0, sum_w = 0;
+    int16_t adc_u = 0, adc_v = 0, adc_w = 0;
+
+    /* 采样 N 次取平均 */
+    for (uint16_t i = 0; i < CALIBRATION_SAMPLES; i++) {
+        /* 读取注入 ADC 原始值 */
+        adc_u = (int16_t)HAL_ADCEx_InjectedGetValue(&hadc1, ADC_INJECTED_RANK_1);
+        adc_v = (int16_t)HAL_ADCEx_InjectedGetValue(&hadc2, ADC_INJECTED_RANK_1);
+        adc_w = (int16_t)HAL_ADCEx_InjectedGetValue(&hadc1, ADC_INJECTED_RANK_2);
+
+        sum_u += adc_u;
+        sum_v += adc_v;
+        sum_w += adc_w;
+
+        HAL_Delay(1);
+    }
+
+    /* 计算平均值 */
+    current_offset_u = (float)(sum_u / CALIBRATION_SAMPLES) * CURRENT_SAMPLE_RES;
+    current_offset_v = (float)(sum_v / CALIBRATION_SAMPLES) * CURRENT_SAMPLE_RES;
+    current_offset_w = (float)(sum_w / CALIBRATION_SAMPLES) * CURRENT_SAMPLE_RES;
+
+    /* 保存到全局变量（供电流环使用）*/
+    foc.current_offset_u = current_offset_u;
+    foc.current_offset_v = current_offset_v;
+    foc.current_offset_w = current_offset_w;
 }
