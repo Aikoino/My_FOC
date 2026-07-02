@@ -1,0 +1,54 @@
+# Keil MDK
+*.o
+*.obj
+*.d
+*.crf
+*.axf
+*.hex
+*.bin
+*.map
+*.lnp
+*.bak
+*.dbg
+*.ini
+*.rdf
+*.tra
+*.reg
+*.ini
+*.uvguix*
+*.uvmpw
+*.uvprojx
+*.uvproj
+*.uvoptx
+*.uvopt
+*.url
+*.htm
+*.m51
+*.m66
+*.__i
+*.icf
+*.sct
+*.cspy
+
+# Build outputs
+MDK-ARM/
+Debug/
+Release/
+Listings/
+Objects/
+
+# System files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Backup files
+*.bak
+*~
+
+# Logs
+*.log
+
+# Temp files
+*.tmp
+*.temp
