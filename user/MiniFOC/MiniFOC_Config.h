@@ -35,6 +35,7 @@
 #define CURRENT_SAMPLE_RATE  20000         /* 电流采样频率 (Hz) */
 #define CURRENT_SENSOR_GAIN  20.0f         /* 电流传感器增益 (V/A) */
 #define SHUNT_RESISTOR      0.01f          /* 采样电阻 (Ω) */
+#define CURRENT_SAMPLE_RES  0.021972f      /* 电流转换系数 (A/bit) = 3.3V/4096 * SHUNT_RESISTOR * GAIN */
 
 /* ========== 电机参数（LA034 040NN07A）========== */
 
