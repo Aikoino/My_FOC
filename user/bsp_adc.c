@@ -124,6 +124,17 @@ float BSP_ADC_GetCurrentW(void)
 }
 
 /**
+  * @brief  获取电流采样零点偏移 (用于 MiniFOC)
+  * @param  ch: 通道 (0=U, 1=V, 2=W)
+  * @retval 零点偏移值 (A)
+  */
+float BSP_ADC_GetCurrentOffset(uint8_t ch)
+{
+    if (ch > 2) return 0.0f;
+    return (float)offset[ch] * 0.021972f;  /* 转换为安培 */
+}
+
+/**
   * @brief  读取母线电压原始值
   * @retval 母线电压 ADC 采样值
   */

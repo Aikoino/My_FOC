@@ -72,11 +72,10 @@ void MiniFOC_Init(void)
     /* bsp_adc 会在上电后自动采样 10 次计算零点 */
     HAL_Delay(100);  /* 等待校准完成 */
 
-    /* 读取 ADC 零点偏移 (bsp_adc 已校准) */
-    extern int32_t offset[3];  /* bsp_adc.c 中的零点偏移 */
-    foc.current_offset_u = (float)offset[0] * CURRENT_SAMPLE_RES;
-    foc.current_offset_v = (float)offset[1] * CURRENT_SAMPLE_RES;
-    foc.current_offset_w = (float)offset[2] * CURRENT_SAMPLE_RES;
+    /* 读取 ADC 零点偏移 (通过 bsp_adc 接口) */
+    foc.current_offset_u = BSP_ADC_GetCurrentOffset(0);
+    foc.current_offset_v = BSP_ADC_GetCurrentOffset(1);
+    foc.current_offset_w = BSP_ADC_GetCurrentOffset(2);
 
     /* 启停PWM输出（输出全0）*/
     MiniFOC_ApplyPWM(0.0f, 0.0f, 0.0f);
