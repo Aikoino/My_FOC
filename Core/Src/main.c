@@ -178,10 +178,22 @@ int main(void)
   {
     sys_tick_ms = HAL_GetTick();
 
-    /* Key scan (10ms) */
+    /* Key scan (10ms) - LED2 翻转 + 电机启停 */
     if (sys_tick_ms - key_timer >= 10) {
         key_timer = sys_tick_ms;
         Key_Scan();
+        if (key_state) {
+            key_state = 0;
+            /* LED2 on when motor running, off when stopped */
+            if (foc.motor_running) {
+                MiniFOC_MotorEnable(false);
+                HAL_GPIO_WritePin(GPIOC, LED2_Pin, GPIO_PIN_SET);   /* LED2 OFF */
+            } else {
+                MiniFOC_SetTargetCurrent(0.5f);
+                MiniFOC_MotorEnable(true);
+                HAL_GPIO_WritePin(GPIOC, LED2_Pin, GPIO_PIN_RESET); /* LED2 ON */
+            }
+        }
     }
 
     /* LED3 heartbeat (1Hz, 500ms on/off) */
@@ -207,20 +219,8 @@ int main(void)
         float iv = BSP_ADC_GetCurrentV();
         float iw = BSP_ADC_GetCurrentW();
 
+        /* 发送电机状态 */
         BSP_UART_VOFA_SendFloats(iu, iv, iw, vbus_voltage);
-    }
-
-    /* KEY toggle motor */
-    if (key_state) {
-        key_state = 0;
-        if (foc.motor_running) {
-            /* 停止：关电机，PWM归零 */
-            MiniFOC_MotorEnable(false);
-        } else {
-            /* 启动：开环电流模式，目标电流 0.5A */
-            MiniFOC_SetTargetCurrent(0.5f);
-            MiniFOC_MotorEnable(true);
-        }
     }
 
     /* CAN send test (500ms) */
@@ -252,7 +252,7 @@ int main(void)
         /* Parse commands */
         if (can_rx_id == 0x100) {
             if (can_rx_data[0] == 0x01) {
-                /* CAN启动电机 - 开环电流模式 */
+                /* CAN启动电机 */
                 MiniFOC_SetTargetCurrent(1.0f);
                 MiniFOC_MotorEnable(true);
             } else if (can_rx_data[0] == 0x00) {
