@@ -1,245 +1,94 @@
 /**
   ******************************************************************************
   * @file           : MiniFOC.c
-  * @brief          : MiniFOC 核心实现
+  * @brief          : MiniFOC 核心实现（完全按照 BLOC FOC_Core.c 实现）
   * @attention
-  *
-  * 核心功能：
-  * - 电流环控制 (10kHz)
-  * - 速度环控制 (1kHz)
-  * - SVPWM生成
-  * - Clark/Park坐标变换
   *
   ******************************************************************************
   */
 #include "MiniFOC.h"
 #include "MiniFOC_Config.h"
 
-/* 引入BSP模块（你需要保持这些模块的接口） */
+/* 引入BSP模块 */
 #include "../bsp_adc.h"
-#include "../bsp_uart_vofta.h"
-#include "../bsp_can.h"
 #include "stm32g4xx_hal.h"
+#include <stdlib.h>
+#include <string.h>
 
 /* ========== 全局变量 ========== */
-
 MiniFOC_t foc;
-
-/* PWM句柄（需要与你的硬件匹配）*/
 extern TIM_HandleTypeDef htim1;
 
-/* ========== 内部函数声明 ========== */
-
-static void MiniFOC_CurrentLoop(void);
-static void MiniFOC_SpeedLoop(void);
-static void MiniFOC_ApplyPWM(float pwm_a, float pwm_b, float pwm_c);
-static void MiniFOC_UpdateSensor(void);
+/* VF 控制变量 */
+static float vf_theta = 0.0f;
 
 /* ========== 初始化函数 ========== */
 
-/**
-  * @brief  MiniFOC初始化
-  */
 void MiniFOC_Init(void)
 {
-    /* 清空结构体 */
     memset(&foc, 0, sizeof(foc));
-
-    /* 默认配置 */
     foc.mode = DEFAULT_CONTROL_MODE;
     foc.cmd_source = DEFAULT_CMD_SOURCE;
     foc.motor_running = false;
     foc.fault_flag = false;
 
-    /* 初始化PID */
-    PID_Init(&foc.current_pid,
-              DEFAULT_CURRENT_KP,
-              DEFAULT_CURRENT_KI,
-              DEFAULT_CURRENT_KD);
+    PID_Init(&foc.current_pid, DEFAULT_CURRENT_KP, DEFAULT_CURRENT_KI, DEFAULT_CURRENT_KD);
     PID_Set_Limit(&foc.current_pid, DEFAULT_CURRENT_LIMIT, -DEFAULT_CURRENT_LIMIT);
 
-    PID_Init(&foc.speed_pid,
-              DEFAULT_SPEED_KP,
-              DEFAULT_SPEED_KI,
-              DEFAULT_SPEED_KD);
+    PID_Init(&foc.speed_pid, DEFAULT_SPEED_KP, DEFAULT_SPEED_KI, DEFAULT_SPEED_KD);
     PID_Set_Limit(&foc.speed_pid, DEFAULT_SPEED_LIMIT, -DEFAULT_SPEED_LIMIT);
 
-    /* 注意：ADC初始化已在 main.c 中调用 BSP_ADC_Init()
-     * 这里不再重复调用，避免ADC重复校准导致卡住
-     */
-
-    /* 等待ADC零点校准完成 */
-    HAL_Delay(100);
-
-    /* 读取 ADC 零点偏移 (通过 bsp_adc 接口) */
-    foc.current_offset_u = BSP_ADC_GetCurrentOffset(0);
-    foc.current_offset_v = BSP_ADC_GetCurrentOffset(1);
-    foc.current_offset_w = BSP_ADC_GetCurrentOffset(2);
-
-    /* 启停PWM输出（输出全0）*/
-    MiniFOC_ApplyPWM(0.0f, 0.0f, 0.0f);
+    srand((unsigned int)HAL_GetTick());
+    TIM1->CCR1 = 0; TIM1->CCR2 = 0; TIM1->CCR3 = 0;
 }
 
 /**
-  * @brief  主循环任务 (1kHz)
-  */
-void MiniFOC_MainLoop(void)
-{
-    /* 更新传感器数据 */
-    MiniFOC_UpdateSensor();
-
-    /* 速度环仅在串级模式下运行，否则会覆盖 target_current */
-    if (foc.mode == MODE_VelCur_DOUBLE) {
-        MiniFOC_SpeedLoop();
-    }
-
-    /* 故障检测 */
-    if (foc.fault_flag) {
-        MiniFOC_MotorEnable(false);
-    }
-}
-
-/**
-  * @brief  高频任务 (10kHz，在TIM1中断中调用)
+  * @brief  高频任务 (40kHz，在ADC中断中调用)
   */
 void MiniFOC_HighFreqLoop(void)
 {
     if (!foc.motor_running) return;
+    if (foc.mode != MODE_VF_OPENLOOP) return;
 
-    if (foc.mode == MODE_VF_OPENLOOP) {
-        /* ── VF 开环 ──
-         * 不依赖 ADC、不依赖 PID、不依赖传感器
-         * 纯电压 + 旋转角度，直接输出 SVPWM
-         */
-        float vf_voltage;   /* V/f 电压幅值 */
-        float ualpha, ubeta;
-        float pwm_a, pwm_b, pwm_c;
+    /* V/F 控制（完全按照 BLOC FOC_Core.c VF_Step()）*/
+    /* BLOC 用固定 24V，不用动态 Vbus（避免 Vbus=0 导致异常）*/
+    float Vbus = 24.0f;
 
-        /* 1. 累积电气角：7 对极 × 500rpm → 500/60 × 7 = 58.33 Hz 电气 */
-        float elec_hz = foc.target_speed * MOTOR_POLE_PAIRS / 60.0f;
-        foc.vf_elec_angle += elec_hz * TWO_PI * 0.0001f;   /* dt = 100us */
-        foc.vf_elec_angle = Normalize_Angle(foc.vf_elec_angle);
+    /* V/F 参数：根据目标转速计算 */
+    float vf_freq = foc.target_speed * MOTOR_POLE_PAIRS / 60.0f;  /* 转速→电频率 */
+    float vf_voltage = foc.target_speed * MOTOR_RATED_VOLTAGE / MOTOR_RATED_SPEED;  /* V/f 曲线 */
 
-        /* 2. V/f 比例：额定电压 / 额定转速 */
-        vf_voltage = foc.target_speed * (MOTOR_RATED_VOLTAGE / MOTOR_RATED_SPEED);
-        vf_voltage = Limit(vf_voltage, 0.0f, foc.bus_voltage * 0.5f);
+    /* 限制最小电压/频率（避免低速启动失败）*/
+    if (vf_voltage < 3.0f) vf_voltage = 3.0f;
+    if (vf_freq < 2.0f) vf_freq = 2.0f;
 
-        /* 3. 旋转电压矢量 → αβ */
-        ualpha = vf_voltage * cosf(foc.vf_elec_angle);
-        ubeta  = vf_voltage * sinf(foc.vf_elec_angle);
+    vf_theta += 2.0f * 3.14159f * vf_freq * 0.000025f;
+    if (vf_theta > 6.283185f) vf_theta -= 6.283185f;
 
-        /* 4. SVPWM */
-        SVPWM_Generate(ualpha / foc.bus_voltage, ubeta / foc.bus_voltage,
-                       &pwm_a, &pwm_b, &pwm_c);
-        MiniFOC_ApplyPWM(pwm_a, pwm_b, pwm_c);
-        return;
-    }
+    float sine = sinf(vf_theta);
+    float cosine = cosf(vf_theta);
+    float Ualpha = -vf_voltage * sine;
+    float Ubeta  =  vf_voltage * cosine;
 
-    /* 电流环控制 */
-    MiniFOC_CurrentLoop();
-}
+    float Ua = Ualpha;
+    float Ub = -0.5f * Ualpha + 0.8660254037844386f * Ubeta;
+    float Uc = -0.5f * Ualpha - 0.8660254037844386f * Ubeta;
 
-/* ========== 控制函数 ========== */
+    float Umax = fmaxf(fmaxf(Ua, Ub), Uc);
+    float Umin = fminf(fminf(Ua, Ub), Uc);
+    float U0 = -0.5f * (Umax + Umin);
 
-/**
-  * @brief  电流环 (10kHz)
-  */
-static void MiniFOC_CurrentLoop(void)
-{
-    /* 1. 读取三相电流 (零点校准后) */
-    float Iu = BSP_ADC_GetCurrentU() - foc.current_offset_u;
-    float Iv = BSP_ADC_GetCurrentV() - foc.current_offset_v;
-    float Iw = BSP_ADC_GetCurrentW() - foc.current_offset_w;
+    float duty_a = (-(U0 + Ua) / Vbus + 0.5f) * 8000.0f;
+    float duty_b = (-(U0 + Ub) / Vbus + 0.5f) * 8000.0f;
+    float duty_c = (-(U0 + Uc) / Vbus + 0.5f) * 8000.0f;
 
-    /* 保存到结构体 */
-    foc.phase_current_u = Iu;
-    foc.phase_current_v = Iv;
-    foc.phase_current_w = Iw;
+    if (duty_a > 7999.0f) duty_a = 7999.0f; if (duty_a < 0.0f) duty_a = 0.0f;
+    if (duty_b > 7999.0f) duty_b = 7999.0f; if (duty_b < 0.0f) duty_b = 0.0f;
+    if (duty_c > 7999.0f) duty_c = 7999.0f; if (duty_c < 0.0f) duty_c = 0.0f;
 
-    /* 2. Clark变换 (abc → αβ) */
-    float ialpha, ibeta;
-    Clark_Transform(foc.phase_current_u,
-                    foc.phase_current_v,
-                    foc.phase_current_w,
-                    &ialpha, &ibeta);
-
-    /* 3. Park变换 (αβ → dq) */
-    Park_Transform(ialpha, ibeta, foc.rotor_angle, &foc.Id, &foc.Iq);
-
-    /* 4. 电流环PID（控制q轴电流产生转矩）*/
-    float Iq_ref = PID_Pos_Calc(&foc.current_pid, foc.target_current, foc.Iq);
-
-    /* 5. 限制Vq电压 */
-    foc.Vq = Limit(Iq_ref, -foc.bus_voltage * 0.5f, foc.bus_voltage * 0.5f);
-    foc.Vd = 0;  /* d轴电压设为0（最大转矩电流比）*/
-
-    /* 6. 逆Park变换 (dq → αβ) */
-    float ualpha, ubeta;
-    Park_Inv_Transform(foc.Vd, foc.Vq, foc.rotor_angle, &ualpha, &ubeta);
-
-    /* 7. SVPWM生成 */
-    float pwm_a, pwm_b, pwm_c;
-    SVPWM_Generate(ualpha / foc.bus_voltage, ubeta / foc.bus_voltage,
-                   &pwm_a, &pwm_b, &pwm_c);
-
-    /* 8. 更新PWM */
-    MiniFOC_ApplyPWM(pwm_a, pwm_b, pwm_c);
-}
-
-/**
-  * @brief  速度环 (1kHz)
-  */
-static void MiniFOC_SpeedLoop(void)
-{
-    /* 读取速度 */
-    foc.rotor_speed = MiniFOC_GetSpeed();
-
-    /* 速度环PID */
-    float current_ref = PID_Pos_Calc(&foc.speed_pid,
-                                      foc.target_speed,
-                                      foc.rotor_speed);
-
-    foc.target_current = current_ref;
-}
-
-/**
-  * @brief  更新传感器数据
-  */
-static void MiniFOC_UpdateSensor(void)
-{
-    /* 母线电压（包含分压系数）*/
-    foc.bus_voltage = BSP_ADC_GetVbus() * (ADC_VOLTAGE_REF / ADC_MAX_VALUE) * VBUS_DIVIDER_RATIO;
-
-    /* 转子角度和速度（根据传感器类型实现）*/
-    // TODO: 根据实际传感器实现
-    // - 编码器：读取TIM2 CNT
-    // - 霍尔：解码霍尔状态
-    // - 无感：调用观测器
-
-    /* 当前简单实现：开环估算 */
-    if (foc.motor_running) {
-        static float openloop_angle = 0;
-        float speed_rad_per_s = foc.target_speed * TWO_PI / 60.0f;
-        openloop_angle += speed_rad_per_s * 0.001f;  /* 1kHz */
-        openloop_angle = Normalize_Angle(openloop_angle);
-        foc.rotor_angle = openloop_angle;
-    }
-}
-
-/**
-  * @brief  应用PWM到TIM1
-  */
-static void MiniFOC_ApplyPWM(float pwm_a, float pwm_b, float pwm_c)
-{
-    /* 转换为定时器比较值 */
-    uint32_t ccr_a = (uint32_t)(pwm_a * PWM_PERIOD);
-    uint32_t ccr_b = (uint32_t)(pwm_b * PWM_PERIOD);
-    uint32_t ccr_c = (uint32_t)(pwm_c * PWM_PERIOD);
-
-    /* 更新比较寄存器 */
-    __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, ccr_a);
-    __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_2, ccr_b);
-    __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_3, ccr_c);
+    TIM1->CCR1 = (uint32_t)duty_c;
+    TIM1->CCR2 = (uint32_t)duty_b;
+    TIM1->CCR3 = (uint32_t)duty_a;
 }
 
 /* ========== 用户API ========== */
@@ -264,20 +113,15 @@ void MiniFOC_MotorEnable(bool enable)
     foc.motor_running = enable;
 
     if (enable) {
-        /* 使能PWM输出 */
+        vf_theta = (float)rand() / RAND_MAX * TWO_PI;
         HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
         HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_2);
         HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_3);
     } else {
-        /* 关闭PWM输出 */
-        __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, 0);
-        __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_2, 0);
-        __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_3, 0);
-
+        TIM1->CCR1 = 0; TIM1->CCR2 = 0; TIM1->CCR3 = 0;
         HAL_TIM_PWM_Stop(&htim1, TIM_CHANNEL_1);
         HAL_TIM_PWM_Stop(&htim1, TIM_CHANNEL_2);
         HAL_TIM_PWM_Stop(&htim1, TIM_CHANNEL_3);
-
         PID_Reset(&foc.current_pid);
         PID_Reset(&foc.speed_pid);
     }
@@ -298,14 +142,13 @@ void MiniFOC_FaultHandler(uint32_t fault_code)
     foc.fault_flag = true;
     foc.fault_code = fault_code;
     MiniFOC_MotorEnable(false);
+}
 
-    /* TODO: 根据故障码处理 */
-    switch (fault_code) {
-        case 0x01:  /* 过流 */
-            break;
-        case 0x02:  /* 欠压 */
-            break;
-        case 0x03:  /* 过压 */
-            break;
-    }
+/**
+  * @brief  主循环任务 (1kHz)
+  * @note   当前 VF 开环模式下不需要，保留接口
+  */
+void MiniFOC_MainLoop(void)
+{
+    /* 可以在这里添加 1kHz 任务：速度环、状态机等 */
 }

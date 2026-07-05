@@ -212,10 +212,6 @@ void TIM1_UP_TIM16_IRQHandler(void)
 
   /* USER CODE END TIM1_UP_TIM16_IRQn 0 */
   HAL_TIM_IRQHandler(&htim1);
-
-  /* MiniFOC 高频任务：电流环 10kHz */
-  MiniFOC_HighFreqLoop();
-
   /* USER CODE BEGIN TIM1_UP_TIM16_IRQn 1 */
 
   /* USER CODE END TIM1_UP_TIM16_IRQn 1 */

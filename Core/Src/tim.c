@@ -32,7 +32,6 @@ void MX_TIM1_Init(void)
 
   /* USER CODE BEGIN TIM1_Init 0 */
 
-
   /* USER CODE END TIM1_Init 0 */
 
   TIM_ClockConfigTypeDef sClockSourceConfig = {0};
@@ -46,7 +45,7 @@ void MX_TIM1_Init(void)
   htim1.Instance = TIM1;
   htim1.Init.Prescaler = 0;
   htim1.Init.CounterMode = TIM_COUNTERMODE_CENTERALIGNED1;
-  htim1.Init.Period = 7999;
+  htim1.Init.Period = 7999;  /* 与 BLOC 一致：ARR=7999, PWM=10.6kHz */
   htim1.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim1.Init.RepetitionCounter = 0;
   htim1.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
@@ -89,7 +88,7 @@ void MX_TIM1_Init(void)
   {
     Error_Handler();
   }
-  sConfigOC.Pulse = 7998;
+  sConfigOC.Pulse = 4248;
   if (HAL_TIM_PWM_ConfigChannel(&htim1, &sConfigOC, TIM_CHANNEL_4) != HAL_OK)
   {
     Error_Handler();
@@ -112,21 +111,6 @@ void MX_TIM1_Init(void)
     Error_Handler();
   }
   /* USER CODE BEGIN TIM1_Init 2 */
-  /* 启动TIM1基本定时（用于计数）*/
-  HAL_TIM_Base_Start(&htim1);
-
-  /* 启动PWM输出 */
-  HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);  /* U�? */
-  HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_2);  /* V�? */
-  HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_3);  /* W�? */
-  HAL_TIMEx_PWMN_Start(&htim1, TIM_CHANNEL_1);  /* U相反�? */
-  HAL_TIMEx_PWMN_Start(&htim1, TIM_CHANNEL_2);  /* V相反�? */
-  HAL_TIMEx_PWMN_Start(&htim1, TIM_CHANNEL_3);  /* W相反�? */
-  HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_4);  /* CH4用于ADC触发 */
-
-  /* 使能TIM1更新中断（用于电流环10kHz�?*/
-  HAL_NVIC_SetPriority(TIM1_UP_TIM16_IRQn, 1, 0);  /* 优先�?1，子优先�?0 */
-  HAL_NVIC_EnableIRQ(TIM1_UP_TIM16_IRQn);
 
   /* USER CODE END TIM1_Init 2 */
   HAL_TIM_MspPostInit(&htim1);
@@ -171,21 +155,21 @@ void HAL_TIM_MspPostInit(TIM_HandleTypeDef* timHandle)
     GPIO_InitStruct.Pin = GPIO_PIN_13|GPIO_PIN_14;
     GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
     GPIO_InitStruct.Pull = GPIO_NOPULL;
-    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
     GPIO_InitStruct.Alternate = GPIO_AF6_TIM1;
     HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
     GPIO_InitStruct.Pin = GPIO_PIN_15;
     GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
     GPIO_InitStruct.Pull = GPIO_NOPULL;
-    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-    GPIO_InitStruct.Alternate = GPIO_AF4_TIM1;
+    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
+    GPIO_InitStruct.Alternate = GPIO_AF4_TIM1;  /* PB15 复用 AF4（与 BLOC 一致）*/
     HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
     GPIO_InitStruct.Pin = GPIO_PIN_8|GPIO_PIN_9|GPIO_PIN_10;
     GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
     GPIO_InitStruct.Pull = GPIO_NOPULL;
-    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;  /* 修复：改为高速 */
     GPIO_InitStruct.Alternate = GPIO_AF6_TIM1;
     HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 

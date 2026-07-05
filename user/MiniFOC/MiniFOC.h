@@ -89,6 +89,7 @@ typedef struct {
 
     /* VF 开环 */
     float vf_elec_angle;             /* VF 开环电气角 (rad) */
+    uint32_t vf_start_time;          /* 启动时间戳（用于 Kick-start） */
 
 } MiniFOC_t;
 

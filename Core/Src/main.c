@@ -66,7 +66,7 @@ static char print_buf[256];
 
 /* 按键扫描相关 */
 static uint32_t key_timer = 0;
-static uint8_t key_state = 0;
+static uint8_t key_state = 0;  /* 0=未按下, 1=已按下(等待释放) */
 
 /* 母线电压 */
 static float vbus_voltage = 0.0f;
@@ -135,7 +135,9 @@ int main(void)
   HAL_GPIO_WritePin(GPIOC, LED3_Pin, GPIO_PIN_RESET);
   /* LED2 initially off */
   HAL_GPIO_WritePin(GPIOC, LED2_Pin, GPIO_PIN_SET);
-  BSP_ADC_Init();
+
+  /* MiniFOC 必须先初始化（在 ADC 启动前，确保 foc 结构体有效）*/
+  MiniFOC_Init();
   HAL_GPIO_TogglePin(GPIOC, LED3_Pin);
 
   BSP_UART_VOFA_Init();
@@ -151,7 +153,8 @@ int main(void)
   CAN_Init_NoIRQ();
   HAL_GPIO_TogglePin(GPIOC, LED3_Pin);
 
-  MiniFOC_Init();
+  /* ADC 最后初始化（避免 ADC 中断在 foc 未准备好时触发）*/
+  BSP_ADC_Init();
   HAL_GPIO_TogglePin(GPIOC, LED3_Pin);
 
   /* Start TIM1 PWM */
@@ -183,23 +186,30 @@ int main(void)
     /* Key scan (10ms) - 按键控制电机启停，LED2 指示状态 */
     if (sys_tick_ms - key_timer >= 10) {
         key_timer = sys_tick_ms;
+
+        /* 按键消抖：连续 3 次检测都按下才认为有效 */
+        static uint8_t key_cnt = 0;
         if (HAL_GPIO_ReadPin(KEY_GPIO_Port, KEY_Pin) == GPIO_PIN_RESET) {
-            HAL_Delay(10);
-            if (HAL_GPIO_ReadPin(KEY_GPIO_Port, KEY_Pin) == GPIO_PIN_RESET) {
-                if (foc.motor_running) {
-                    MiniFOC_MotorEnable(false);
-                    HAL_GPIO_WritePin(GPIOC, LED2_Pin, GPIO_PIN_SET);   /* LED2 OFF = 电机停止 */
-                } else {
-                    MiniFOC_SetMode(MODE_VF_OPENLOOP);   /* VF 开环模式 */
-                    MiniFOC_SetTargetSpeed(800.0f);      /* 目标转速 800rpm */
-                    MiniFOC_MotorEnable(true);
-                    HAL_GPIO_WritePin(GPIOC, LED2_Pin, GPIO_PIN_RESET); /* LED2 ON = 电机运行 */
-                }
-                /* 等待按键释放 */
-                while (HAL_GPIO_ReadPin(KEY_GPIO_Port, KEY_Pin) == GPIO_PIN_RESET) {
-                    HAL_Delay(10);
+            key_cnt++;
+            if (key_cnt >= 3) {  /* 30ms 消抖完成 */
+                if (key_state == 0) {  /* 上升沿触发 */
+                    key_state = 1;
+                    /* 切换电机状态 */
+                    if (foc.motor_running) {
+                        MiniFOC_MotorEnable(false);
+                        HAL_GPIO_WritePin(GPIOC, LED2_Pin, GPIO_PIN_SET);   /* LED2 OFF = 电机停止 */
+                    } else {
+                        MiniFOC_SetMode(MODE_VF_OPENLOOP);   /* VF 开环模式 */
+                        MiniFOC_SetTargetSpeed(800.0f);      /* 目标转速 800rpm */
+                        foc.bus_voltage = 24.0f;            /* 临时强制 24V 母线电压 */
+                        MiniFOC_MotorEnable(true);
+                        HAL_GPIO_WritePin(GPIOC, LED2_Pin, GPIO_PIN_RESET); /* LED2 ON = 电机运行 */
+                    }
                 }
             }
+        } else {
+            key_cnt = 0;
+            key_state = 0;
         }
     }
 
@@ -212,11 +222,11 @@ int main(void)
         }
     }
 
+    /* 更新母线电压（每轮循环都更新）*/
+    Vbus_Adc_Update();
+
     /* MiniFOC main loop (1kHz) */
     MiniFOC_MainLoop();
-
-    /* ADC software trigger (注入通道) */
-    BSP_ADC_SoftwareTrigger();
 
     /* VOFA+ send (500ms) */
     if (sys_tick_ms - last_test_ms >= 500) {

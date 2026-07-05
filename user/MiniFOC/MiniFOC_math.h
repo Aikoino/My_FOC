@@ -98,21 +98,22 @@ static inline void Park_Inv_Transform(float id, float iq, float theta,
 
 /**
   * @brief  SVPWM生成 - 计算三相PWM占空比
-  * @param  ualpha: α轴电压
-  * @param  ubeta: β轴电压
+  * @param  ualpha: α轴电压 (归一化, ∈ [-1, 1]，代表 ±Vbus/2)
+  * @param  ubeta: β轴电压 (归一化, ∈ [-1, 1]，代表 ±Vbus/2)
   * @param  pwm_a: A相占空比输出 (0~1)
   * @param  pwm_b: B相占空比输出 (0~1)
   * @param  pwm_c: C相占空比输出 (0~1)
-  * @note   输出范围已经限幅在 [0, 1]
+  * @note   输入已归一化（调用方需除以母线电压），输出限幅在 [0, 1]
   */
 static inline void SVPWM_Generate(float ualpha, float ubeta,
                                   float *pwm_a, float *pwm_b, float *pwm_c)
 {
+    /* 基础矢量投影 */
     float u1 = ubeta;
-    float u2 = (-0.5f * ualpha + SQRT3_INV * ubeta);
-    float u3 = (-0.5f * ualpha - SQRT3_INV * ubeta);
+    float u2 = -0.5f * ualpha + SQRT3_INV * ubeta;
+    float u3 = -0.5f * ualpha - SQRT3_INV * ubeta;
 
-    // 扇区判断
+    /* 扇区判断 */
     uint8_t sector = 0;
     if (u1 > 0) sector |= 1;
     if (u2 > 0) sector |= 2;
@@ -121,48 +122,24 @@ static inline void SVPWM_Generate(float ualpha, float ubeta,
     float t1 = 0, t2 = 0;
 
     switch (sector) {
-        case 1:  // 扇区1
-            t1 = u2;
-            t2 = u1;
-            break;
-        case 2:  // 扇区2
-            t1 = u1;
-            t2 = -u3;
-            break;
-        case 3:  // 扇区3
-            t1 = -u3;
-            t2 = u2;
-            break;
-        case 4:  // 扇区4
-            t1 = -u2;
-            t2 = u3;
-            break;
-        case 5:  // 扇区5
-            t1 = u3;
-            t2 = -u1;
-            break;
-        case 6:  // 扇区6
-            t1 = -u1;
-            t2 = -u2;
-            break;
-        default:
-            break;
+        case 1:  t1 = u2;  t2 = u1;  break;
+        case 2:  t1 = -u3; t2 = -u2; break;
+        case 3:  t1 = u3;  t2 = u2;  break;
+        case 4:  t1 = -u2; t2 = u3;  break;
+        case 5:  t1 = -u1; t2 = -u3; break;
+        case 6:  t1 = u1;  t2 = u3;  break;
+        default: break;
     }
 
-    // 计算PWM (0.5是死区补偿的一半)
-    float half_pwm = 0.5f;
+    /* 中心对齐PWM占空比 (中间向量 = 0.5) */
+    *pwm_a = 0.5f + 0.5f * (t1 - t2);
+    *pwm_b = 0.5f + 0.5f * (t1 + t2);
+    *pwm_c = 0.5f - t1;
 
-    *pwm_a = half_pwm + 0.5f * (t1 - t2);
-    *pwm_b = half_pwm + 0.5f * (t1 + t2);
-    *pwm_c = half_pwm - t1;
-
-    // 限幅 [0, 1]
-    if (*pwm_a > 1.0f) *pwm_a = 1.0f;
-    if (*pwm_a < 0.0f) *pwm_a = 0.0f;
-    if (*pwm_b > 1.0f) *pwm_b = 1.0f;
-    if (*pwm_b < 0.0f) *pwm_b = 0.0f;
-    if (*pwm_c > 1.0f) *pwm_c = 1.0f;
-    if (*pwm_c < 0.0f) *pwm_c = 0.0f;
+    /* 限幅 [0, 1] */
+    if (*pwm_a > 1.0f) *pwm_a = 1.0f; else if (*pwm_a < 0.0f) *pwm_a = 0.0f;
+    if (*pwm_b > 1.0f) *pwm_b = 1.0f; else if (*pwm_b < 0.0f) *pwm_b = 0.0f;
+    if (*pwm_c > 1.0f) *pwm_c = 1.0f; else if (*pwm_c < 0.0f) *pwm_c = 0.0f;
 }
 
 /* ========== 工具函数 ========== */

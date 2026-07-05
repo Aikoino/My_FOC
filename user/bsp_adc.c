@@ -17,6 +17,7 @@
 /* USER CODE END Header */
 #include "bsp_adc.h"
 #include "main.h"
+#include "MiniFOC/MiniFOC.h"   /* 添加：访问 foc 结构体 */
 
 extern ADC_HandleTypeDef hadc1;
 extern ADC_HandleTypeDef hadc2;
@@ -99,6 +100,11 @@ void HAL_ADCEx_InjectedConvCpltCallback(ADC_HandleTypeDef *hadc)
         curr_value[0] = (float)(ADC_Data[0] - offset[0]) * 0.021972f;
         curr_value[1] = (float)(ADC_Data[1] - offset[1]) * 0.021972f;
         curr_value[2] = (float)(ADC_Data[2] - offset[2]) * 0.021972f;
+
+        /* VF 开环控制：在 ADC 中断中执行（40kHz 硬件同步）*/
+        if (foc.motor_running && foc.mode == MODE_VF_OPENLOOP) {
+            MiniFOC_HighFreqLoop();
+        }
     }
 }
 
