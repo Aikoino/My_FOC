@@ -34,20 +34,14 @@ extern "C" {
 #include "dma.h"
 #include "multi_button.h"
 #include "button_app.h"
-#include "bsp_adc.h"
-#include "bsp_uart_vofta.h"
+#include "adc.h"
+#include "opamp.h"
+#include "usart.h"
+#include "fdcan.h"
+#include "tim.h"
 #include "bsp_motor.h"
-#include "bsp_can.h"
 #include "motor_cmd.h"
 /* USER CODE END Includes */
-
-/* 全局宏定义 ----------------------------------------------------------------*/
-/* USER CODE BEGIN ED */
-
-/* 使能 printf 重定向 */
-#define PUTCHAR_PROTOTYPE int fputc(int ch, FILE *f)
-
-/* USER CODE END ED */
 
 /* Exported types ------------------------------------------------------------*/
 /* USER CODE BEGIN ET */
@@ -72,8 +66,6 @@ extern OPAMP_HandleTypeDef hopamp1;
 extern OPAMP_HandleTypeDef hopamp2;
 extern OPAMP_HandleTypeDef hopamp3;
 /* USER CODE END EM */
-
-void HAL_TIM_MspPostInit(TIM_HandleTypeDef *htim);
 
 /* Exported functions prototypes ---------------------------------------------*/
 void Error_Handler(void);

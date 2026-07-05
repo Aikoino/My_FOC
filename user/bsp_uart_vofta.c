@@ -1,4 +1,4 @@
-﻿/* USER CODE BEGIN Header */
+/* USER CODE BEGIN Header */
 /**
   ******************************************************************************
   * @file           : bsp_uart_vofta.c
@@ -15,11 +15,27 @@
 extern UART_HandleTypeDef huart3;
 
 /**
+  * @brief  轮询方式发送单字节
+  * @param  data: 要发送的字节
+  * @retval None
+  */
+static void VOFA_UART_SendByte(uint8_t data)
+{
+    uint32_t timeout = 0;
+
+    /* 等待发送缓冲区空 */
+    while (!(USART3->ISR & USART_ISR_TXE_TXFNF_Pos) && timeout++ < 10000);
+
+    USART3->TDR = data;
+}
+
+/**
   * @brief  VOFA+ 串口初始化
   * @retval None
   */
 void BSP_UART_VOFA_Init(void)
 {
+    /* VOFA+ 初始化完成，USART3 已在 CubeMX 中配置 */
 }
 
 /**
@@ -28,34 +44,43 @@ void BSP_UART_VOFA_Init(void)
   * @param  b: 参数 B (V相电流)
   * @param  c: 参数 C (W相电流)
   * @param  d: 参数 D (母线电压)
-  * @retval None
+  * @retval HAL_StatusTypeDef: HAL_OK=成功, HAL_ERROR=失败
   *
   * JustFloat协议格式：
-  * - 小端浮点数组
-  * - 帧尾固定: 0x00, 0x00, 0x80, 0x7F (float 1.0)
-  * - 示例: 4个float = 4*4 + 4 = 20字节
+  * - 4个 float，小端格式，每个4字节 = 16字节
+  * - 帧尾固定: 0x00, 0x00, 0x80, 0x7F = 4字节
+  * - 总长度: 20字节
   */
-void BSP_UART_VOFA_SendFloats(float a, float b, float c, float d)
+HAL_StatusTypeDef BSP_UART_VOFA_SendFloats(float a, float b, float c, float d)
 {
-    /* 数据数组: 4个float(16字节) + 帧尾(4字节) = 20字节 */
-    static uint8_t buf[20] = {0};
+    uint8_t i;
 
-    /* 清零数据区域（保留帧尾） */
-    memset(buf, 0, 16);
+    /* 发送 4 个 float (16 字节) */
+    uint8_t *ptr = (uint8_t *)&a;
+    for (i = 0; i < 4; i++) {
+        VOFA_UART_SendByte(ptr[i]);
+    }
 
-    /* 拷贝4个float到缓冲区（小端格式） */
-    memcpy(buf, &a, sizeof(float));
-    memcpy(buf + 4, &b, sizeof(float));
-    memcpy(buf + 8, &c, sizeof(float));
-    memcpy(buf + 12, &d, sizeof(float));
+    ptr = (uint8_t *)&b;
+    for (i = 0; i < 4; i++) {
+        VOFA_UART_SendByte(ptr[i]);
+    }
 
-    /* 设置帧尾: 0x00, 0x00, 0x80, 0x7F */
-    buf[16] = 0x00;
-    buf[17] = 0x00;
-    buf[18] = 0x80;
-    buf[19] = 0x7F;
+    ptr = (uint8_t *)&c;
+    for (i = 0; i < 4; i++) {
+        VOFA_UART_SendByte(ptr[i]);
+    }
 
-    /* 发送20字节 */
-    HAL_UART_Transmit(&huart3, buf, 20, 1);
+    ptr = (uint8_t *)&d;
+    for (i = 0; i < 4; i++) {
+        VOFA_UART_SendByte(ptr[i]);
+    }
+
+    /* 发送帧尾: 0x00, 0x00, 0x80, 0x7F */
+    VOFA_UART_SendByte(0x00);
+    VOFA_UART_SendByte(0x00);
+    VOFA_UART_SendByte(0x80);
+    VOFA_UART_SendByte(0x7F);
+
+    return HAL_OK;
 }
-

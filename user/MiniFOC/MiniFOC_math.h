@@ -118,7 +118,6 @@ static inline void SVPWM_Generate(float ualpha, float ubeta,
     if (u2 > 0) sector |= 2;
     if (u3 > 0) sector |= 4;
 
-    float tx = 0, ty = 0, tz = 0;
     float t1 = 0, t2 = 0;
 
     switch (sector) {

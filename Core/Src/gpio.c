@@ -68,6 +68,17 @@ void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
 
+  /*Configure GPIO pin(s) : PB10 PB11 (USART3) */
+  /* 注意：CubeMX 在 usart.c 的 HAL_UART_MspInit() 中也会配置这些引脚
+     但速度为 SPEED_FREQ_LOW，导致 921600 波特率无法正常工作
+     所以这里用 HIGH 速度覆盖配置一次 */
+  GPIO_InitStruct.Pin = GPIO_PIN_10|GPIO_PIN_11;
+  GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;  // 高速以支持 921600 波特率
+  GPIO_InitStruct.Alternate = GPIO_AF7_USART3;
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
 }
 
 /* USER CODE BEGIN 2 */

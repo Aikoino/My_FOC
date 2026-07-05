@@ -29,24 +29,12 @@ extern "C" {
 #include "main.h"
 
 /* USER CODE BEGIN Includes */
-#include "opamp.h"
-#include "usart.h"
-#include "gpio.h"
+
 /* USER CODE END Includes */
 
 extern ADC_HandleTypeDef hadc1;
 
 extern ADC_HandleTypeDef hadc2;
-
-/* USER CODE BEGIN Private defines */
-void BSP_ADC_Init(void);
-extern float CurrlValue[3];
-extern uint8_t adc_finish_flag;
-extern float Ia,Ib,Ic;
-void VOFA_SendData(float Ia,float Ib,float Ic);
-extern volatile int ADC_VCC_Done;
-extern float VDD;
-/* USER CODE END Private defines */
 
 void MX_ADC1_Init(void);
 void MX_ADC2_Init(void);
@@ -60,4 +48,3 @@ void MX_ADC2_Init(void);
 #endif
 
 #endif /* __ADC_H__ */
-

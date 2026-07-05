@@ -58,4 +58,10 @@ float BSP_ADC_GetCurrentOffset(uint8_t ch);
   */
 uint16_t BSP_ADC_GetVbus(void);
 
+/**
+  * @brief  ADC 注入转换软件触发
+  * @retval None
+  */
+void BSP_ADC_SoftwareTrigger(void);
+
 #endif

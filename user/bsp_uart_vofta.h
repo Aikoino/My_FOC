@@ -14,6 +14,7 @@
 #define __BSP_UART_VOFA_H__
 
 #include <stdint.h>
+#include "stm32g4xx_hal.h"
 
 /* VOFA+ 协议宏定义 */
 
@@ -27,7 +28,8 @@ void BSP_UART_VOFA_Init(void);
   * @param  b: 参数 B（V 相电流）
   * @param  c: 参数 C（W 相电流）
   * @param  d: 参数 D（母线电压）
+  * @retval HAL_StatusTypeDef: HAL_OK=成功, 其他=失败
   */
-void BSP_UART_VOFA_SendFloats(float a, float b, float c, float d);
+HAL_StatusTypeDef BSP_UART_VOFA_SendFloats(float a, float b, float c, float d);
 
 #endif
