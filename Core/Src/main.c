@@ -96,7 +96,10 @@ static void Key_Scan(void);
 int main(void)
 {
   /* USER CODE BEGIN 1 */
-
+  /* 注意：所有外设句柄（hadc1, hadc2, huart3, htim1, hfdcan1, hopamp1/2/3）
+     都在对应的 peripheral 文件中定义（adc.c, usart.c, tim.c, fdcan.c, opamp.c）
+     不要在这里重复定义，否则会产生 "multiply defined" 链接错误。
+  */
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
@@ -127,30 +130,28 @@ int main(void)
   MX_USART3_UART_Init();
   /* USER CODE BEGIN 2 */
 
-  /* NO SERIAL DEBUG - keep USART3 clean for VOFA+ JustFloat protocol */
-
-  /* Initialize systems with step-by-step LED indication */
-  HAL_GPIO_WritePin(GPIOC, LED3_Pin, GPIO_PIN_RESET);  /* LED3 ON = step start */
+  /* === BSP Init === */
+  /* LED ON during initialization */
+  HAL_GPIO_WritePin(GPIOC, LED3_Pin, GPIO_PIN_RESET);
 
   BSP_ADC_Init();
-  HAL_GPIO_TogglePin(GPIOC, LED3_Pin);  /* blink = step 1 OK */
+  HAL_GPIO_TogglePin(GPIOC, LED3_Pin);
 
   BSP_UART_VOFA_Init();
-  HAL_GPIO_TogglePin(GPIOC, LED3_Pin);  /* blink = step 2 OK */
+  HAL_GPIO_TogglePin(GPIOC, LED3_Pin);
 
   BSP_Button_Init();
-  HAL_GPIO_TogglePin(GPIOC, LED3_Pin);  /* blink = step 3 OK */
+  HAL_GPIO_TogglePin(GPIOC, LED3_Pin);
 
   BSP_Motor_Init();
-  HAL_GPIO_TogglePin(GPIOC, LED3_Pin);  /* blink = step 4 OK */
+  HAL_GPIO_TogglePin(GPIOC, LED3_Pin);
 
-  /* TEMPORARY: Comment out CAN to test if it's the culprit */
-  /* CAN_Init(); */
-  HAL_GPIO_TogglePin(GPIOC, LED3_Pin);  /* blink = step 5 OK (CAN skipped) */
+  /* CAN Init - 先用NoIRQ版本测试 HAL_FDCAN_Start 是否正常 */
+  CAN_Init_NoIRQ();
+  HAL_GPIO_TogglePin(GPIOC, LED3_Pin);
 
-  /* MiniFOC Init */
   MiniFOC_Init();
-  HAL_GPIO_TogglePin(GPIOC, LED3_Pin);  /* blink = step 6 OK */
+  HAL_GPIO_TogglePin(GPIOC, LED3_Pin);
 
   /* Start TIM1 PWM */
   HAL_TIM_Base_Start(&htim1);
@@ -161,66 +162,59 @@ int main(void)
   HAL_TIMEx_PWMN_Start(&htim1, TIM_CHANNEL_2);
   HAL_TIMEx_PWMN_Start(&htim1, TIM_CHANNEL_3);
   HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_4);
-  HAL_GPIO_TogglePin(GPIOC, LED3_Pin);  /* blink = step 7 OK */
+  HAL_GPIO_TogglePin(GPIOC, LED3_Pin);
 
-  /* Start ADC for Vbus sampling */
+  /* Start ADC for Vbus */
   HAL_ADC_Start(&hadc1);
-  HAL_GPIO_TogglePin(GPIOC, LED3_Pin);  /* blink = step 8 OK */
+  HAL_GPIO_TogglePin(GPIOC, LED3_Pin);
 
-  /* Test: Send one packet to verify VOFA+ */
-  float test_vbus = 12.0f;
-  BSP_UART_VOFA_SendFloats(0.0f, 0.0f, 0.0f, test_vbus);
-  HAL_GPIO_TogglePin(GPIOC, LED3_Pin);  /* blink = step 9 OK */
-
-  /* LED3 OFF = initialization complete */
+  /* All init complete - LED off */
   HAL_GPIO_WritePin(GPIOC, LED3_Pin, GPIO_PIN_SET);
 
   /* USER CODE END 2 */
 
-  /* Infinite loop */
-  /* USER CODE BEGIN WHILE */
+  /* === Main Loop === */
   while (1)
   {
     sys_tick_ms = HAL_GetTick();
 
+    /* Key scan (10ms) */
     if (sys_tick_ms - key_timer >= 10) {
         key_timer = sys_tick_ms;
         Key_Scan();
         if (key_state) {
             key_state = 0;
-            HAL_GPIO_TogglePin(GPIOC, LED2_Pin);  /* LED2 controlled by button */
+            HAL_GPIO_TogglePin(GPIOC, LED2_Pin);
+        }
+    }
+
+    /* LED3 heartbeat (1Hz, 500ms on/off) */
+    {
+        static uint32_t led_timer = 0;
+        if (sys_tick_ms - led_timer >= 500) {
+            led_timer = sys_tick_ms;
+            HAL_GPIO_TogglePin(GPIOC, LED3_Pin);
         }
     }
 
     /* MiniFOC main loop (1kHz) */
     MiniFOC_MainLoop();
 
-    /* Software trigger ADC injected conversion (alternative to TIM1 CC4 hardware trigger) */
+    /* ADC software trigger (注入通道) */
     BSP_ADC_SoftwareTrigger();
 
-    /* Send data to VOFA+ (JustFloat protocol) */
-    if (sys_tick_ms - last_test_ms >= TEST_INTERVAL_MS) {
+    /* VOFA+ send (500ms) */
+    if (sys_tick_ms - last_test_ms >= 500) {
         last_test_ms = sys_tick_ms;
         Vbus_Adc_Update();
         float iu = BSP_ADC_GetCurrentU();
         float iv = BSP_ADC_GetCurrentV();
         float iw = BSP_ADC_GetCurrentW();
 
-        /* Turn ON LED3 before sending */
-        HAL_GPIO_WritePin(GPIOC, LED3_Pin, GPIO_PIN_RESET);
-
-        HAL_StatusTypeDef status = BSP_UART_VOFA_SendFloats(iu, iv, iw, vbus_voltage);
-
-        /* Turn OFF LED3 after sending */
-        HAL_GPIO_WritePin(GPIOC, LED3_Pin, GPIO_PIN_SET);
-
-        /* If send failed, blink LED2 rapidly */
-        if (status != HAL_OK) {
-            HAL_GPIO_TogglePin(GPIOC, LED2_Pin);
-        }
+        BSP_UART_VOFA_SendFloats(iu, iv, iw, vbus_voltage);
     }
 
-    /* CAN send test - send incrementing ID every 500ms */
+    /* CAN send test (500ms) */
     if (sys_tick_ms - last_can_ms >= 500) {
         last_can_ms = sys_tick_ms;
         uint8_t can_data[8] = {0};
@@ -238,11 +232,14 @@ int main(void)
         }
     }
 
-    /* CAN receive test - poll */
-    uint32_t can_rx_id = 0;
-    uint8_t can_rx_data[8] = {0};
-    uint8_t can_rx_len = 0;
-    if (CAN_Receive(&can_rx_id, can_rx_data, &can_rx_len)) {
+    /* CAN receive poll */
+    do {
+        uint32_t can_rx_id = 0;
+        uint8_t can_rx_data[8] = {0};
+        uint8_t can_rx_len = 0;
+
+        if (!CAN_Receive(&can_rx_id, can_rx_data, &can_rx_len)) break;
+
         /* Parse commands */
         if (can_rx_id == 0x100) {
             if (can_rx_data[0] == 0x01) {
@@ -254,18 +251,8 @@ int main(void)
             uint16_t speed = (can_rx_data[1] << 8) | can_rx_data[0];
             BSP_Motor_SetSpeed(speed);
         }
-    }
-
-    static uint32_t led_timer = 0;
-    if (sys_tick_ms - led_timer >= 500) {
-        led_timer = sys_tick_ms;
-        HAL_GPIO_TogglePin(GPIOC, LED3_Pin);  /* LED3 as heartbeat */
-    }
-    /* USER CODE END WHILE */
-
-    /* USER CODE BEGIN 3 */
+    } while (0);
   }
-  /* USER CODE END 3 */
 }
 
 /**

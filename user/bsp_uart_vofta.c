@@ -21,10 +21,10 @@ extern UART_HandleTypeDef huart3;
   */
 static void VOFA_UART_SendByte(uint8_t data)
 {
-    uint32_t timeout = 0;
-
-    /* 等待发送缓冲区空 */
-    while (!(USART3->ISR & USART_ISR_TXE_TXFNF_Pos) && timeout++ < 10000);
+    /* 等待发送缓冲区空 (TXE = Transmit Empty) */
+    while (!(USART3->ISR & USART_ISR_TXE)) {
+        /* wait */
+    }
 
     USART3->TDR = data;
 }

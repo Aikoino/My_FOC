@@ -64,12 +64,12 @@ void MiniFOC_Init(void)
               DEFAULT_SPEED_KD);
     PID_Set_Limit(&foc.speed_pid, DEFAULT_SPEED_LIMIT, -DEFAULT_SPEED_LIMIT);
 
-    /* 初始化ADC（如果尚未初始化）*/
-    BSP_ADC_Init();
+    /* 注意：ADC初始化已在 main.c 中调用 BSP_ADC_Init()
+     * 这里不再重复调用，避免ADC重复校准导致卡住
+     */
 
-    /* 等待ADC零点校准完成 (bsp_adc 内部已实现校准) */
-    /* bsp_adc 会在上电后自动采样 10 次计算零点 */
-    HAL_Delay(100);  /* 等待校准完成 */
+    /* 等待ADC零点校准完成 */
+    HAL_Delay(100);
 
     /* 读取 ADC 零点偏移 (通过 bsp_adc 接口) */
     foc.current_offset_u = BSP_ADC_GetCurrentOffset(0);
