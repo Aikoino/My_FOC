@@ -182,10 +182,6 @@ int main(void)
     if (sys_tick_ms - key_timer >= 10) {
         key_timer = sys_tick_ms;
         Key_Scan();
-        if (key_state) {
-            key_state = 0;
-            HAL_GPIO_TogglePin(GPIOC, LED2_Pin);
-        }
     }
 
     /* LED3 heartbeat (1Hz, 500ms on/off) */
@@ -212,6 +208,19 @@ int main(void)
         float iw = BSP_ADC_GetCurrentW();
 
         BSP_UART_VOFA_SendFloats(iu, iv, iw, vbus_voltage);
+    }
+
+    /* KEY toggle motor */
+    if (key_state) {
+        key_state = 0;
+        if (foc.motor_running) {
+            /* 停止：关电机，PWM归零 */
+            MiniFOC_MotorEnable(false);
+        } else {
+            /* 启动：开环电流模式，目标电流 0.5A */
+            MiniFOC_SetTargetCurrent(0.5f);
+            MiniFOC_MotorEnable(true);
+        }
     }
 
     /* CAN send test (500ms) */
@@ -243,13 +252,17 @@ int main(void)
         /* Parse commands */
         if (can_rx_id == 0x100) {
             if (can_rx_data[0] == 0x01) {
-                BSP_Motor_Start();
+                /* CAN启动电机 - 开环电流模式 */
+                MiniFOC_SetTargetCurrent(1.0f);
+                MiniFOC_MotorEnable(true);
             } else if (can_rx_data[0] == 0x00) {
-                BSP_Motor_Stop();
+                /* CAN停止电机 */
+                MiniFOC_MotorEnable(false);
             }
         } else if (can_rx_id == 0x101 && can_rx_len >= 2) {
+            /* CAN设定转速 */
             uint16_t speed = (can_rx_data[1] << 8) | can_rx_data[0];
-            BSP_Motor_SetSpeed(speed);
+            MiniFOC_SetTargetSpeed((float)speed);
         }
     } while (0);
   }
