@@ -23,13 +23,15 @@
   */
 void BSP_UART_VOFA_Init(void);
 /**
-  * @brief  通过串口发送四个浮点数到 VOFA+
+  * @brief  通过串口发送六个浮点数到 VOFA+
   * @param  a: 参数 A（U 相电流）
   * @param  b: 参数 B（V 相电流）
   * @param  c: 参数 C（W 相电流）
-  * @param  d: 参数 D（母线电压）
+  * @param  d: 参数 D（CCR1 占空比）
+  * @param  e: 参数 E（CCR2 占空比）
+  * @param  f: 参数 F（CCR3 占空比）
   * @retval HAL_StatusTypeDef: HAL_OK=成功, 其他=失败
   */
-HAL_StatusTypeDef BSP_UART_VOFA_SendFloats(float a, float b, float c, float d);
+HAL_StatusTypeDef BSP_UART_VOFA_SendFloats(float a, float b, float c, float d, float e, float f);
 
 #endif

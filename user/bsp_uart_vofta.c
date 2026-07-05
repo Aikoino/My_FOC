@@ -39,23 +39,25 @@ void BSP_UART_VOFA_Init(void)
 }
 
 /**
-  * @brief  通过串口发送四个浮点数到 VOFA+ (JustFloat协议)
+  * @brief  通过串口发送六个浮点数到 VOFA+ (JustFloat协议)
   * @param  a: 参数 A (U相电流)
   * @param  b: 参数 B (V相电流)
   * @param  c: 参数 C (W相电流)
-  * @param  d: 参数 D (母线电压)
+  * @param  d: 参数 D (CCR1占空比)
+  * @param  e: 参数 E (CCR2占空比)
+  * @param  f: 参数 F (CCR3占空比)
   * @retval HAL_StatusTypeDef: HAL_OK=成功, HAL_ERROR=失败
   *
   * JustFloat协议格式：
-  * - 4个 float，小端格式，每个4字节 = 16字节
+  * - 6个 float，小端格式，每个4字节 = 24字节
   * - 帧尾固定: 0x00, 0x00, 0x80, 0x7F = 4字节
-  * - 总长度: 20字节
+  * - 总长度: 28字节
   */
-HAL_StatusTypeDef BSP_UART_VOFA_SendFloats(float a, float b, float c, float d)
+HAL_StatusTypeDef BSP_UART_VOFA_SendFloats(float a, float b, float c, float d, float e, float f)
 {
     uint8_t i;
 
-    /* 发送 4 个 float (16 字节) */
+    /* 发送 6 个 float (24 字节) */
     uint8_t *ptr = (uint8_t *)&a;
     for (i = 0; i < 4; i++) {
         VOFA_UART_SendByte(ptr[i]);
@@ -72,6 +74,16 @@ HAL_StatusTypeDef BSP_UART_VOFA_SendFloats(float a, float b, float c, float d)
     }
 
     ptr = (uint8_t *)&d;
+    for (i = 0; i < 4; i++) {
+        VOFA_UART_SendByte(ptr[i]);
+    }
+
+    ptr = (uint8_t *)&e;
+    for (i = 0; i < 4; i++) {
+        VOFA_UART_SendByte(ptr[i]);
+    }
+
+    ptr = (uint8_t *)&f;
     for (i = 0; i < 4; i++) {
         VOFA_UART_SendByte(ptr[i]);
     }

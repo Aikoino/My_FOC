@@ -236,8 +236,11 @@ int main(void)
         float iv = BSP_ADC_GetCurrentV();
         float iw = BSP_ADC_GetCurrentW();
 
-        /* 发送电机状态 */
-        BSP_UART_VOFA_SendFloats(iu, iv, iw, vbus_voltage);
+        /* 发送电机状态（三相电流 + 三相占空比 - 与 BLOC send_UVWV() 一致）*/
+        float ccr_a = (float)TIM1->CCR1;
+        float ccr_b = (float)TIM1->CCR2;
+        float ccr_c = (float)TIM1->CCR3;
+        BSP_UART_VOFA_SendFloats(iu, iv, iw, ccr_a, ccr_b, ccr_c);
     }
 
     /* CAN send test (500ms) */
