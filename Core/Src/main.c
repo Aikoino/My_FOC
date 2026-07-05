@@ -171,9 +171,6 @@ int main(void)
   /* All init complete - LED off */
   HAL_GPIO_WritePin(GPIOC, LED3_Pin, GPIO_PIN_SET);
 
-  /* Initial LED state: both off */
-  HAL_GPIO_WritePin(GPIOC, LED2_Pin, GPIO_PIN_SET);
-
   /* USER CODE END 2 */
 
   /* === Main Loop === */
@@ -187,7 +184,7 @@ int main(void)
         Key_Scan();
         if (key_state) {
             key_state = 0;
-            /* LED2 on when motor running, off when stopped */
+            /* 按键控制电机启停 */
             if (foc.motor_running) {
                 MiniFOC_MotorEnable(false);
                 HAL_GPIO_WritePin(GPIOC, LED2_Pin, GPIO_PIN_SET);   /* LED2 OFF */
