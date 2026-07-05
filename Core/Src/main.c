@@ -133,7 +133,8 @@ int main(void)
   /* === BSP Init === */
   /* LED ON during initialization */
   HAL_GPIO_WritePin(GPIOC, LED3_Pin, GPIO_PIN_RESET);
-
+  /* LED2 initially off */
+  HAL_GPIO_WritePin(GPIOC, LED2_Pin, GPIO_PIN_SET);
   BSP_ADC_Init();
   HAL_GPIO_TogglePin(GPIOC, LED3_Pin);
 
@@ -168,8 +169,9 @@ int main(void)
   HAL_ADC_Start(&hadc1);
   HAL_GPIO_TogglePin(GPIOC, LED3_Pin);
 
-  /* All init complete - LED off */
+  /* All init complete - LEDs off */
   HAL_GPIO_WritePin(GPIOC, LED3_Pin, GPIO_PIN_SET);
+  HAL_GPIO_WritePin(GPIOC, LED2_Pin, GPIO_PIN_SET);   /* LED2 OFF = 电机停止 */
 
   /* USER CODE END 2 */
 
@@ -178,20 +180,25 @@ int main(void)
   {
     sys_tick_ms = HAL_GetTick();
 
-    /* Key scan (10ms) - LED2 翻转 + 电机启停 */
+    /* Key scan (10ms) - 按键控制电机启停，LED2 指示状态 */
     if (sys_tick_ms - key_timer >= 10) {
         key_timer = sys_tick_ms;
-        Key_Scan();
-        if (key_state) {
-            key_state = 0;
-            /* 按键控制电机启停 */
-            if (foc.motor_running) {
-                MiniFOC_MotorEnable(false);
-                HAL_GPIO_WritePin(GPIOC, LED2_Pin, GPIO_PIN_SET);   /* LED2 OFF */
-            } else {
-                MiniFOC_SetTargetCurrent(0.5f);
-                MiniFOC_MotorEnable(true);
-                HAL_GPIO_WritePin(GPIOC, LED2_Pin, GPIO_PIN_RESET); /* LED2 ON */
+        if (HAL_GPIO_ReadPin(KEY_GPIO_Port, KEY_Pin) == GPIO_PIN_RESET) {
+            HAL_Delay(10);
+            if (HAL_GPIO_ReadPin(KEY_GPIO_Port, KEY_Pin) == GPIO_PIN_RESET) {
+                if (foc.motor_running) {
+                    MiniFOC_MotorEnable(false);
+                    HAL_GPIO_WritePin(GPIOC, LED2_Pin, GPIO_PIN_SET);   /* LED2 OFF = 电机停止 */
+                } else {
+                    MiniFOC_SetMode(MODE_VF_OPENLOOP);   /* VF 开环模式 */
+                    MiniFOC_SetTargetSpeed(800.0f);      /* 目标转速 800rpm */
+                    MiniFOC_MotorEnable(true);
+                    HAL_GPIO_WritePin(GPIOC, LED2_Pin, GPIO_PIN_RESET); /* LED2 ON = 电机运行 */
+                }
+                /* 等待按键释放 */
+                while (HAL_GPIO_ReadPin(KEY_GPIO_Port, KEY_Pin) == GPIO_PIN_RESET) {
+                    HAL_Delay(10);
+                }
             }
         }
     }

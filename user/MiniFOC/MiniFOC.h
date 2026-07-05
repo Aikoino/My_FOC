@@ -87,6 +87,9 @@ typedef struct {
     bool fault_flag;                 /* 故障标志 */
     uint32_t fault_code;             /* 故障码 */
 
+    /* VF 开环 */
+    float vf_elec_angle;             /* VF 开环电气角 (rad) */
+
 } MiniFOC_t;
 
 /* ========== 全局变量声明 ========== */

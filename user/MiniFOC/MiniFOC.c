@@ -88,8 +88,10 @@ void MiniFOC_MainLoop(void)
     /* 更新传感器数据 */
     MiniFOC_UpdateSensor();
 
-    /* 速度环控制 */
-    MiniFOC_SpeedLoop();
+    /* 速度环仅在串级模式下运行，否则会覆盖 target_current */
+    if (foc.mode == MODE_VelCur_DOUBLE) {
+        MiniFOC_SpeedLoop();
+    }
 
     /* 故障检测 */
     if (foc.fault_flag) {
@@ -103,6 +105,35 @@ void MiniFOC_MainLoop(void)
 void MiniFOC_HighFreqLoop(void)
 {
     if (!foc.motor_running) return;
+
+    if (foc.mode == MODE_VF_OPENLOOP) {
+        /* ── VF 开环 ──
+         * 不依赖 ADC、不依赖 PID、不依赖传感器
+         * 纯电压 + 旋转角度，直接输出 SVPWM
+         */
+        float vf_voltage;   /* V/f 电压幅值 */
+        float ualpha, ubeta;
+        float pwm_a, pwm_b, pwm_c;
+
+        /* 1. 累积电气角：7 对极 × 500rpm → 500/60 × 7 = 58.33 Hz 电气 */
+        float elec_hz = foc.target_speed * MOTOR_POLE_PAIRS / 60.0f;
+        foc.vf_elec_angle += elec_hz * TWO_PI * 0.0001f;   /* dt = 100us */
+        foc.vf_elec_angle = Normalize_Angle(foc.vf_elec_angle);
+
+        /* 2. V/f 比例：额定电压 / 额定转速 */
+        vf_voltage = foc.target_speed * (MOTOR_RATED_VOLTAGE / MOTOR_RATED_SPEED);
+        vf_voltage = Limit(vf_voltage, 0.0f, foc.bus_voltage * 0.5f);
+
+        /* 3. 旋转电压矢量 → αβ */
+        ualpha = vf_voltage * cosf(foc.vf_elec_angle);
+        ubeta  = vf_voltage * sinf(foc.vf_elec_angle);
+
+        /* 4. SVPWM */
+        SVPWM_Generate(ualpha / foc.bus_voltage, ubeta / foc.bus_voltage,
+                       &pwm_a, &pwm_b, &pwm_c);
+        MiniFOC_ApplyPWM(pwm_a, pwm_b, pwm_c);
+        return;
+    }
 
     /* 电流环控制 */
     MiniFOC_CurrentLoop();
