@@ -75,7 +75,7 @@ static float vbus_voltage = 0.0f;
 /* 测试步骤 */
 static uint8_t test_step = 0;
 
-/* 控制模式选择（0=VF开环, 1=霍尔电流环）*/
+/* 控制模式选择（0=VF开环, 1=霍尔电流环, 2=霍尔速度环）*/
 static uint8_t use_hall_mode = 0;  /* 默认使用 VF 开环 */
 /* USER CODE END PV */
 
@@ -207,13 +207,17 @@ int main(void)
                         HAL_GPIO_WritePin(GPIOC, LED2_Pin, GPIO_PIN_SET);   /* LED2 OFF = 电机停止 */
                     } else {
                         /* 启动电机（根据模式选择）*/
-                        if (use_hall_mode) {
-                            /* 霍尔电流环模式（增大启动电流到 5A，防止卡住）*/
+                        if (use_hall_mode == 0) {
+                            /* VF 开环模式（800rpm）*/
+                            MiniFOC_SetMode(MODE_VF_OPENLOOP);
+                            MiniFOC_SetTargetSpeed(800.0f);
+                        } else if (use_hall_mode == 1) {
+                            /* 霍尔电流环模式（5A启动电流）*/
                             MiniFOC_SetMode(MODE_Sensor_Hall);
                             MiniFOC_SetTargetCurrent(5.0f);
                         } else {
-                            /* VF 开环模式（800rpm）*/
-                            MiniFOC_SetMode(MODE_VF_OPENLOOP);
+                            /* 霍尔速度环模式（800rpm目标速度）*/
+                            MiniFOC_SetMode(MODE_Sensor_Hall);
                             MiniFOC_SetTargetSpeed(800.0f);
                         }
                         foc.bus_voltage = vbus_voltage;  /* 使用实际母线电压 */
@@ -223,7 +227,7 @@ int main(void)
 
                     /* 切换控制模式（仅在停止状态下）*/
                     if (!foc.motor_running) {
-                        use_hall_mode = !use_hall_mode;
+                        use_hall_mode = (use_hall_mode + 1) % 3;  /* 0→1→2→0循环 */
                     }
                 }
             }
@@ -248,19 +252,19 @@ int main(void)
     /* MiniFOC main loop (1kHz) */
     MiniFOC_MainLoop();
 
-    /* VOFA+ send (2ms, 500Hz) - 关键6通道: Iq, Uq, rotor_angle, sector, U相电流, V相电流 */
+    /* VOFA+ send (2ms, 500Hz) - 关键6通道: target_speed, rotor_speed, Iq, Uq, rotor_angle, sector */
     if (sys_tick_ms - last_test_ms >= 2) {
         last_test_ms = sys_tick_ms;
         Vbus_Adc_Update();
 
-        float iq_val = foc.Iq;
-        float uq_val = foc.Uq;
-        float angle_val = foc.rotor_angle;
-        float sector_val = (float)BSP_Hall_GetSector();
-        float iu_val = BSP_ADC_GetCurrentU();
-        float iv_val = BSP_ADC_GetCurrentV();
+        float target_spd_val = foc.target_speed;   /* 目标转速 */
+        float rotor_spd_val = foc.rotor_speed;     /* 实际转速 */
+        float iq_val = foc.Iq;                      /* q轴电流 */
+        float uq_val = foc.Uq;                      /* q轴电压 */
+        float angle_val = foc.rotor_angle;          /* 转子角度 */
+        float sector_val = (float)BSP_Hall_GetSector();  /* 扇区 */
 
-        BSP_UART_VOFA_SendFloats(iq_val, uq_val, angle_val, sector_val, iu_val, iv_val);
+        BSP_UART_VOFA_SendFloats(target_spd_val, rotor_spd_val, iq_val, uq_val, angle_val, sector_val);
     }
 
     /* CAN send test (500ms) */

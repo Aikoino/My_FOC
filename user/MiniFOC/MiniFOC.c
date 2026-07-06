@@ -58,7 +58,7 @@ void MiniFOC_Init(void)
     PID_Set_IntegralLimit(&foc.current_pid, DEFAULT_CURRENT_LIMIT * 0.5f, -DEFAULT_CURRENT_LIMIT * 0.5f);
 
     /* 速度环 PID 初始化（先设参数，再Init）*/
-    foc.speed_pid.T = 0.001f;  /* 1kHz 主循环 */
+    foc.speed_pid.T = 0.01f;  /* 100Hz 执行周期（1kHz主循环 / 10分频 = 100Hz）*/
     PID_Set_Param(&foc.speed_pid, DEFAULT_SPEED_KP, DEFAULT_SPEED_KI, DEFAULT_SPEED_KD);
     PID_Init(&foc.speed_pid);
     PID_Set_OutputLimit(&foc.speed_pid, DEFAULT_SPEED_LIMIT, -DEFAULT_SPEED_LIMIT);
