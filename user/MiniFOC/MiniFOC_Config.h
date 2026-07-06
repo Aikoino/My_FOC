@@ -68,9 +68,9 @@
 #define DEFAULT_CURRENT_KD       0.0f
 #define DEFAULT_CURRENT_LIMIT    8.0f      /* 降低输出限幅（原来是 5A）*/
 
-/* PID参数 - 速度环 */
-#define DEFAULT_SPEED_KP         1.0f
-#define DEFAULT_SPEED_KI         0.5f
+/* PID参数 - 速度环（调优后：增大Kp提高响应，增大Ki减小稳态误差）*/
+#define DEFAULT_SPEED_KP         1.5f      /* 增大Kp（1.0→1.5）提高响应速度 */
+#define DEFAULT_SPEED_KI         1.2f      /* 增大Ki（1.0→1.2）减小稳态误差 */
 #define DEFAULT_SPEED_KD         0.0f
 #define DEFAULT_SPEED_LIMIT      5.0f      /* 降低限幅（原来是 8A）*/
 
