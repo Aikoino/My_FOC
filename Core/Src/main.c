@@ -33,6 +33,7 @@
 #include "bsp_uart_vofta.h"
 #include "bsp_can.h"
 #include "bsp_motor.h"
+#include "bsp_hall.h"
 #include "MiniFOC/MiniFOC.h"
 /* USER CODE END Includes */
 
@@ -73,6 +74,9 @@ static float vbus_voltage = 0.0f;
 
 /* 测试步骤 */
 static uint8_t test_step = 0;
+
+/* 控制模式选择（0=VF开环, 1=霍尔电流环）*/
+static uint8_t use_hall_mode = 0;  /* 默认使用 VF 开环 */
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -146,6 +150,9 @@ int main(void)
   BSP_Button_Init();
   HAL_GPIO_TogglePin(GPIOC, LED3_Pin);
 
+  BSP_Hall_Init();      /* 霍尔传感器初始化 */
+  HAL_GPIO_TogglePin(GPIOC, LED3_Pin);
+
   BSP_Motor_Init();
   HAL_GPIO_TogglePin(GPIOC, LED3_Pin);
 
@@ -194,16 +201,29 @@ int main(void)
             if (key_cnt >= 3) {  /* 30ms 消抖完成 */
                 if (key_state == 0) {  /* 上升沿触发 */
                     key_state = 1;
-                    /* 切换电机状态 */
                     if (foc.motor_running) {
+                        /* 停止电机 */
                         MiniFOC_MotorEnable(false);
                         HAL_GPIO_WritePin(GPIOC, LED2_Pin, GPIO_PIN_SET);   /* LED2 OFF = 电机停止 */
                     } else {
-                        MiniFOC_SetMode(MODE_VF_OPENLOOP);   /* VF 开环模式 */
-                        MiniFOC_SetTargetSpeed(800.0f);      /* 目标转速 800rpm */
-                        foc.bus_voltage = 24.0f;            /* 临时强制 24V 母线电压 */
+                        /* 启动电机（根据模式选择）*/
+                        if (use_hall_mode) {
+                            /* 霍尔电流环模式（增大启动电流到 5A，防止卡住）*/
+                            MiniFOC_SetMode(MODE_Sensor_Hall);
+                            MiniFOC_SetTargetCurrent(5.0f);
+                        } else {
+                            /* VF 开环模式（800rpm）*/
+                            MiniFOC_SetMode(MODE_VF_OPENLOOP);
+                            MiniFOC_SetTargetSpeed(800.0f);
+                        }
+                        foc.bus_voltage = vbus_voltage;  /* 使用实际母线电压 */
                         MiniFOC_MotorEnable(true);
                         HAL_GPIO_WritePin(GPIOC, LED2_Pin, GPIO_PIN_RESET); /* LED2 ON = 电机运行 */
+                    }
+
+                    /* 切换控制模式（仅在停止状态下）*/
+                    if (!foc.motor_running) {
+                        use_hall_mode = !use_hall_mode;
                     }
                 }
             }
@@ -228,19 +248,19 @@ int main(void)
     /* MiniFOC main loop (1kHz) */
     MiniFOC_MainLoop();
 
-    /* VOFA+ send (500ms) */
-    if (sys_tick_ms - last_test_ms >= 500) {
+    /* VOFA+ send (2ms, 500Hz) - 关键6通道: Iq, Uq, rotor_angle, sector, U相电流, V相电流 */
+    if (sys_tick_ms - last_test_ms >= 2) {
         last_test_ms = sys_tick_ms;
         Vbus_Adc_Update();
-        float iu = BSP_ADC_GetCurrentU();
-        float iv = BSP_ADC_GetCurrentV();
-        float iw = BSP_ADC_GetCurrentW();
 
-        /* 发送电机状态（三相电流 + 三相占空比 - 与 BLOC send_UVWV() 一致）*/
-        float ccr_a = (float)TIM1->CCR1;
-        float ccr_b = (float)TIM1->CCR2;
-        float ccr_c = (float)TIM1->CCR3;
-        BSP_UART_VOFA_SendFloats(iu, iv, iw, ccr_a, ccr_b, ccr_c);
+        float iq_val = foc.Iq;
+        float uq_val = foc.Uq;
+        float angle_val = foc.rotor_angle;
+        float sector_val = (float)BSP_Hall_GetSector();
+        float iu_val = BSP_ADC_GetCurrentU();
+        float iv_val = BSP_ADC_GetCurrentV();
+
+        BSP_UART_VOFA_SendFloats(iq_val, uq_val, angle_val, sector_val, iu_val, iv_val);
     }
 
     /* CAN send test (500ms) */
@@ -283,6 +303,17 @@ int main(void)
             /* CAN设定转速 */
             uint16_t speed = (can_rx_data[1] << 8) | can_rx_data[0];
             MiniFOC_SetTargetSpeed((float)speed);
+        } else if (can_rx_id == 0x102 && can_rx_len >= 2) {
+            /* CAN 设置霍尔角度校准偏移 (int16 * 0.01 rad) */
+            int16_t offset_raw = (int16_t)((can_rx_data[1] << 8) | can_rx_data[0]);
+            MiniFOC_SetHallAngleOffset((float)offset_raw * 0.01f);
+        } else if (can_rx_id == 0x103) {
+            /* CAN 读取当前霍尔偏移 → 回传到 0x104 */
+            uint8_t resp[4];
+            int16_t cur = (int16_t)(foc.hall_angle_offset / 0.01f);
+            resp[0] = (uint8_t)(cur & 0xFF);
+            resp[1] = (uint8_t)((cur >> 8) & 0xFF);
+            CAN_Send(0x104, resp, 4);
         }
     } while (0);
   }

@@ -101,8 +101,11 @@ void HAL_ADCEx_InjectedConvCpltCallback(ADC_HandleTypeDef *hadc)
         curr_value[1] = (float)(ADC_Data[1] - offset[1]) * 0.021972f;
         curr_value[2] = (float)(ADC_Data[2] - offset[2]) * 0.021972f;
 
-        /* VF 开环控制：在 ADC 中断中执行（40kHz 硬件同步）*/
-        if (foc.motor_running && foc.mode == MODE_VF_OPENLOOP) {
+        /* 更新电流到 MiniFOC 结构体（电流环反馈）*/
+        MiniFOC_UpdateCurrent(curr_value[0], curr_value[1]);
+
+        /* 在 ADC 中断中执行电流环（Hall 和 VF 模式）*/
+        if (foc.motor_running) {
             MiniFOC_HighFreqLoop();
         }
     }

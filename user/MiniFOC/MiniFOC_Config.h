@@ -62,17 +62,17 @@
 /* 速度指令源 */
 #define DEFAULT_CMD_SOURCE       CMD_SOURCE_UART       /* 串口调速 */
 
-/* PID参数 - 电流环 */
-#define DEFAULT_CURRENT_KP       0.1f
-#define DEFAULT_CURRENT_KI       0.01f
+/* PID参数 - 电流环（保守调试参数）*/
+#define DEFAULT_CURRENT_KP       0.5f      /* 增大 Kp（原来是 0.1）*/
+#define DEFAULT_CURRENT_KI       0.05f     /* 增大 Ki（原来是 0.01）*/
 #define DEFAULT_CURRENT_KD       0.0f
-#define DEFAULT_CURRENT_LIMIT    5.0f   /* 电流环输出限幅 (A) */
+#define DEFAULT_CURRENT_LIMIT    8.0f      /* 降低输出限幅（原来是 5A）*/
 
 /* PID参数 - 速度环 */
-#define DEFAULT_SPEED_KP         0.5f
-#define DEFAULT_SPEED_KI         0.1f
+#define DEFAULT_SPEED_KP         1.0f
+#define DEFAULT_SPEED_KI         0.5f
 #define DEFAULT_SPEED_KD         0.0f
-#define DEFAULT_SPEED_LIMIT      8.0f   /* 速度环输出限幅 (A) */
+#define DEFAULT_SPEED_LIMIT      5.0f      /* 降低限幅（原来是 8A）*/
 
 /* 电流限幅 */
 #define CURRENT_LIMIT            8.0f   /* 硬件限流 (A) */
@@ -84,6 +84,7 @@
 #define ENCODER_POLE_PAIRS       1      /* 编码器倍频 */
 
 /* 霍尔传感器配置（如果使用）*/
+#define USE_HALL_SENSOR          1      /* 1=启用霍尔传感器, 0=禁用 */
 #define HALL_SENSOR_POLARITY     1      /* 霍尔极性 (1或-1) */
 
 /* ========== 无感观测器配置（可选）========== */

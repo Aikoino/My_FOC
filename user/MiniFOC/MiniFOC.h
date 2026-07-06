@@ -70,8 +70,10 @@ typedef struct {
     float phase_current_w;           /* W相电流 (A) */
 
     /* dq轴变量 */
-    float Id, Iq;                    /* d轴/q轴电流 */
-    float Vd, Vq;                    /* d轴/q轴电压 */
+    float Id, Iq;                    /* d轴/q轴电流反馈 */
+    float Ud, Uq;                    /* d轴/q轴电压输出 */
+    float Target_Id;                 /* d轴电流给定 */
+    float Target_Iq;                 /* q轴电流给定 */
 
     /* 电流采样零点校准 */
     float current_offset_u;          /* U相电流偏移 (A) */
@@ -90,6 +92,16 @@ typedef struct {
     /* VF 开环 */
     float vf_elec_angle;             /* VF 开环电气角 (rad) */
     uint32_t vf_start_time;          /* 启动时间戳（用于 Kick-start） */
+
+    /* 预定位（Hall 模式启动用）*/
+    uint32_t pre_position_start;     /* 预定位开始时间戳 */
+    bool pre_position_active;        /* 是否在预定位阶段 */
+
+    float rotor_sine;                /* 电角度 sin 值 */
+    float rotor_cosine;              /* 电角度 cos 值 */
+
+    /* 霍尔角度校准偏移（rad）*/
+    float hall_angle_offset;         /* Hall 模式电角度校准偏移 */
 
 } MiniFOC_t;
 
@@ -154,6 +166,41 @@ float MiniFOC_GetCurrent(void);
   * @brief  故障处理
   */
 void MiniFOC_FaultHandler(uint32_t fault_code);
+
+/**
+  * @brief  更新转子角度和转速（由 BSP 调用）
+  * @param  angle: 转子机械角度（rad）
+  * @param  speed: 转子转速（rpm）
+  */
+void MiniFOC_UpdateRotorState(float angle, float speed);
+
+/**
+  * @brief  更新三相电流（由 BSP 调用）
+  * @param  iu: U 相电流（A）
+  * @param  iv: V 相电流（A）
+  */
+void MiniFOC_UpdateCurrent(float iu, float iv);
+
+/**
+  * @brief  V/F 开环控制步骤（内部函数）
+  */
+void MiniFOC_VF_Step(void);
+
+/**
+  * @brief  电流环闭环控制（内部函数）
+  */
+void MiniFOC_CurrentLoop(void);
+
+/**
+  * @brief  速度环控制（内部函数）
+  */
+void MiniFOC_SpeedLoop(void);
+
+/**
+  * @brief  设置霍尔角度校准偏移（用于修正霍尔传感器零点偏差）
+  * @param  offset_rad: 偏移角度（rad），例如 PI/2 = 1.5708f
+  */
+void MiniFOC_SetHallAngleOffset(float offset_rad);
 
 #ifdef __cplusplus
 }
