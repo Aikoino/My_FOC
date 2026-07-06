@@ -140,4 +140,11 @@ float BSP_Hall_GetSpeed(void);
   */
 void BSP_Hall_ResetTracking(void);
 
+/**
+  * @brief  TIM4 捕获回调函数
+  * @note   在 stm32g4xx_it.c 的 TIM4_IRQHandler 中调用
+  *         用于 TIM4 硬件捕获模式，精度更高
+  */
+void BSP_Hall_TIM4_CaptureCallback(void);
+
 #endif /* __BSP_HALL_H__ */

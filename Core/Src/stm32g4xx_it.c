@@ -60,7 +60,10 @@ extern ADC_HandleTypeDef hadc1;
 extern ADC_HandleTypeDef hadc2;
 extern FDCAN_HandleTypeDef hfdcan1;
 extern UART_HandleTypeDef huart3;
+extern TIM_HandleTypeDef htim4;  /* TIM4 for Hall Sensor */
 /* USER CODE BEGIN EV */
+#include "../Core/Inc/tim.h"  /* 引用 HALL_Handle */
+#include "../user/bsp_hall.h"  /* 引用 BSP_Hall_t */
 /* USER CODE END EV */
 
 /******************************************************************************/
@@ -216,6 +219,21 @@ void TIM1_UP_TIM16_IRQHandler(void)
 
   /* USER CODE END TIM1_UP_TIM16_IRQn 1 */
 }
+
+/**
+  * @brief This function handles TIM4 global interrupt.
+  */
+void TIM4_IRQHandler(void)
+{
+  /* USER CODE BEGIN TIM4_IRQn 0 */
+
+  /* USER CODE END TIM4_IRQn 0 */
+  HAL_TIM_IRQHandler(&htim4);
+  /* USER CODE BEGIN TIM4_IRQn 1 */
+  /* 霍尔传感器中断回调 */
+  BSP_Hall_TIM4_CaptureCallback();
+  /* USER CODE END TIM4_IRQn 1 */
+}
 void ADC1_2_IRQHandler(void)
 {
   /* USER CODE BEGIN ADC1_2_IRQn 0 */
@@ -224,6 +242,45 @@ void ADC1_2_IRQHandler(void)
   HAL_ADC_IRQHandler(&hadc1);
   HAL_ADC_IRQHandler(&hadc2);
   /* USER CODE BEGIN ADC1_2_IRQn 1 */
+
+  /* ========== 霍尔传感器角度累加和校准 ========== */
+  /* 角度累加：基于TIM4捕获的速度计算 */
+  if (HALL_Handle.Direction == POSITIVE) {
+      HALL_Handle.HallElAngle += HALL_Handle.AvrElSpeedDpp;
+  } else {
+      HALL_Handle.HallElAngle -= HALL_Handle.AvrElSpeedDpp;
+  }
+
+  /* 角度归一化到 [0, 2π) */
+  if (HALL_Handle.HallElAngle < 0.0f) {
+      HALL_Handle.HallElAngle += 2.0f * PI;
+  } else if (HALL_Handle.HallElAngle > (2.0f * PI)) {
+      HALL_Handle.HallElAngle -= 2.0f * PI;
+  }
+
+  /* 一圈校准：当MeasuredElAngle回到PHASE_SHIFT_ANGLE时，校准HallElAngle */
+  if (HALL_Handle.MeasuredElAngle >= (PHASE_SHIFT_ANGLE - 0.1f) &&
+      HALL_Handle.MeasuredElAngle <= (PHASE_SHIFT_ANGLE + 0.1f) &&
+      HALL_Handle.Direction == POSITIVE) {
+      /* 正转校准：同步HallElAngle到实测角度 */
+      HALL_Handle.HallElAngle = HALL_Handle.MeasuredElAngle;
+  } else if (HALL_Handle.MeasuredElAngle >= (PHASE_SHIFT_ANGLE + PI/3.0f - 0.1f) &&
+             HALL_Handle.MeasuredElAngle <= (PHASE_SHIFT_ANGLE + PI/3.0f + 0.1f) &&
+             HALL_Handle.Direction == NEGATIVE) {
+      /* 反转校准：同步HallElAngle到实测角度 */
+      HALL_Handle.HallElAngle = HALL_Handle.MeasuredElAngle;
+  }
+
+  /* ========== 兼容 bsp_hall 的 hall_sensor 结构体 ========== */
+  /* 同步到 hall_sensor（供 MiniFOC 使用）*/
+  hall_sensor.elec_angle = HALL_Handle.HallElAngle;
+  hall_sensor.rotor_speed = HALL_Handle.HallSpeed;
+  hall_sensor.sector = HALL_Handle.HallState;
+
+  /* ========== 更新 MiniFOC 状态 ========== */
+  extern MiniFOC_t foc;
+  foc.rotor_angle = HALL_Handle.HallElAngle;
+  foc.rotor_speed = HALL_Handle.HallSpeed;
 
   /* USER CODE END ADC1_2_IRQn 1 */
 }

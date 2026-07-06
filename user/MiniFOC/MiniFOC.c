@@ -200,16 +200,16 @@ void MiniFOC_CurrentLoop(void)
     /* 预定位阶段：给固定电压矢量，把转子拉到已知位置 */
     if (foc.pre_position_active) {
         uint32_t elapsed = HAL_GetTick() - foc.pre_position_start;
-        if (elapsed < 300) {  /* 预定位持续 300ms */
+        if (elapsed < 800) {  /* 预定位持续 800ms（足够转子从任何位置拉过来）*/
             /* 读取 Hall 角度 */
             if (foc.mode == MODE_Sensor_Hall) {
                 BSP_Hall_Read();
             }
             float elec_angle = foc.rotor_angle * (float)MOTOR_POLE_PAIRS;
 
-            /* Ud=0, Uq=5V（固定电压矢量，产生最大转矩）*/
+            /* Ud=0, Uq=12V（加大电压，产生更强转矩，快速拉转子）*/
             foc.Ud = 0.0f;
-            foc.Uq = 5.0f;
+            foc.Uq = 12.0f;  /* 从 5V 增加到 12V（50%占空比）*/
 
             float sine = fast_sin(elec_angle);
             float cosine = fast_cos(elec_angle);
@@ -437,7 +437,7 @@ void MiniFOC_MotorEnable(bool enable)
 
         /* 电流环给定初始化 */
         foc.Target_Id = 0.0f;
-        foc.Target_Iq = foc.target_current;
+        foc.Target_Iq = foc.target_current * 0.5f;  /* 启动时只用 50% 电流，避免冲击 */
         foc.current_pid.run.Ref = foc.Target_Iq;
 
         /* 霍尔模式：重置跟踪状态 */

@@ -124,47 +124,36 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
+  MX_DMA_Init();
+  MX_USART3_UART_Init();
   MX_TIM1_Init();
   MX_ADC1_Init();
   MX_ADC2_Init();
-  MX_FDCAN1_Init();
   MX_OPAMP1_Init();
   MX_OPAMP2_Init();
   MX_OPAMP3_Init();
-  MX_USART3_UART_Init();
+  MX_FDCAN1_Init();
   /* USER CODE BEGIN 2 */
-
-  /* === BSP Init === */
-  /* LED ON during initialization */
-  HAL_GPIO_WritePin(GPIOC, LED3_Pin, GPIO_PIN_RESET);
-  /* LED2 initially off */
-  HAL_GPIO_WritePin(GPIOC, LED2_Pin, GPIO_PIN_SET);
-
-  /* MiniFOC 必须先初始化（在 ADC 启动前，确保 foc 结构体有效）*/
-  MiniFOC_Init();
-  HAL_GPIO_TogglePin(GPIOC, LED3_Pin);
-
-  BSP_UART_VOFA_Init();
-  HAL_GPIO_TogglePin(GPIOC, LED3_Pin);
-
+  HAL_GPIO_WritePin(GPIOC, LED2_Pin|LED3_Pin, GPIO_PIN_RESET);
   BSP_Button_Init();
-  HAL_GPIO_TogglePin(GPIOC, LED3_Pin);
+  BSP_ADC_Init();
 
-  BSP_Hall_Init();      /* 霍尔传感器初始化 */
-  HAL_GPIO_TogglePin(GPIOC, LED3_Pin);
+  /* 初始化霍尔传感器（读 GPIO 获取初始角度）*/
+  BSP_Hall_Init();
+  BSP_Hall_ResetTracking();
 
   BSP_Motor_Init();
   HAL_GPIO_TogglePin(GPIOC, LED3_Pin);
 
-  /* CAN Init - 先用NoIRQ版本测试 HAL_FDCAN_Start 是否正常 */
+  /* CAN Init */
   CAN_Init_NoIRQ();
   HAL_GPIO_TogglePin(GPIOC, LED3_Pin);
 
-  /* ADC 最后初始化（避免 ADC 中断在 foc 未准备好时触发）*/
+  /* ADC 最后初始化 */
   BSP_ADC_Init();
   HAL_GPIO_TogglePin(GPIOC, LED3_Pin);
 
-  /* Start TIM1 PWM */
+  /* Start TIM1 PWM (所有通道) */
   HAL_TIM_Base_Start(&htim1);
   HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
   HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_2);
