@@ -489,56 +489,12 @@ void HALL_Get_Electrical_Angle(void *pHandleVoid)
     }
     /* 注意：else分支已在上面超时检测中处理，这里不需要重复清零 */
 
-    /* 计算角度补偿量（用于ADC中断累加）*/
+    /*  TIM4中断职责简化：
+     * 1. 计算速度（HallSpeed/TempSpeed/AvrElSpeedDpp）
+     * 2. 计算DeltaAngle补偿量
+     * 3. 角度校准和累加移到ADC中断（单一职责）
+     */
     phandle->DeltaAngle = (phandle->MeasuredElAngle - phandle->HallElAngle) / 10000.0f;
-
-    /* ✅ 一圈校准：当转子转到PHASE_SHIFT_ANGLE时强制同步
-     * 作用：消除累积误差，防止长时间运行后角度漂移
-     * 原理：每60°机械角校准一次，将实测角度同步到霍尔累加角度
-     *
-     * ⚠️ 注意：反转功能（NEGATIVE）未经实际测试，如有问题可删除else if分支
-     */
-    static uint32_t hall_calib_counter = 0;  /* 校准计数器（调试用）*/
-    float mech_angle = phandle->HallElAngle / (float)MOTOR_POLE_PAIRS;  /* 电角度→机械角度 */
-
-    /* 校准点1：PHASE_SHIFT_ANGLE + 容差范围 */
-    if (mech_angle >= (PHASE_SHIFT_ANGLE - 0.15f) && mech_angle <= (PHASE_SHIFT_ANGLE + 0.15f)) {
-        if (phandle->Direction == POSITIVE) {
-            phandle->HallElAngle = phandle->MeasuredElAngle;
-            hall_calib_counter++;
-
-            /* 调试输出：校准信息（每100次打印一次）*/
-            if (hall_calib_counter % 100 == 0 && debug_cnt % 10 == 0) {
-                extern UART_HandleTypeDef huart3;
-                char buf[128];
-                int len = sprintf(buf, "[CALIB] POS %lu times, mech=%.3f, el=%.3f\r\n",
-                                hall_calib_counter, mech_angle, phandle->HallElAngle);
-                HAL_UART_Transmit(&huart3, (uint8_t*)buf, len, 10);
-            }
-        }
-    }
-    /* 校准点2：PHASE_SHIFT_ANGLE + PI/3 + 容差范围（反转时）*/
-    else if (mech_angle >= (PHASE_SHIFT_ANGLE + PI/3.0f - 0.15f) &&
-             mech_angle <= (PHASE_SHIFT_ANGLE + PI/3.0f + 0.15f)) {
-        if (phandle->Direction == NEGATIVE) {
-            phandle->HallElAngle = phandle->MeasuredElAngle;
-            hall_calib_counter++;
-
-            /* 调试输出：校准信息（每100次打印一次）*/
-            if (hall_calib_counter % 100 == 0 && debug_cnt % 10 == 0) {
-                extern UART_HandleTypeDef huart3;
-                char buf[128];
-                int len = sprintf(buf, "[CALIB] NEG %lu times, mech=%.3f, el=%.3f\r\n",
-                                hall_calib_counter, mech_angle, phandle->HallElAngle);
-                HAL_UART_Transmit(&huart3, (uint8_t*)buf, len, 10);
-            }
-        }
-    }
-
-    /* ❌ 不要在这里更新 HallElAngle！
-     * ✅ HallElAngle 由 ADC 中断累加：HallElAngle += AvrElSpeedDpp
-     * ✅ 这样可以实现 20kHz 的平滑角度更新，而不是只在换相时更新
-     */
 }
 
 /* USER CODE END 1 */

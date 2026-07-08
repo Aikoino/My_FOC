@@ -30,8 +30,22 @@ void BSP_UART_VOFA_Init(void);
   * @param  d: 参数 D（CCR1 占空比）
   * @param  e: 参数 E（CCR2 占空比）
   * @param  f: 参数 F（CCR3 占空比）
-  * @retval HAL_StatusTypeDef: HAL_OK=成功, 其他=失败
+  * @retval HAL_StatusTypeDef: HAL_OK=成功, HAL_BUSY=DMA忙, 其他=失败
   */
 HAL_StatusTypeDef BSP_UART_VOFA_SendFloats(float a, float b, float c, float d, float e, float f);
+
+/**
+  * @brief  VOFA+ DMA发送完成回调（由HAL库调用）
+  * @param  huart: UART句柄
+  * @retval None
+  */
+void BSP_UART_VOFA_TxCpltCallback(UART_HandleTypeDef *huart);
+
+/**
+  * @brief  VOFA+ DMA发送错误回调（由HAL库调用）
+  * @param  huart: UART句柄
+  * @retval None
+  */
+void BSP_UART_VOFA_TxErrorCallback(UART_HandleTypeDef *huart);
 
 #endif

@@ -108,40 +108,21 @@ void MiniFOC_Init(void)
 
 /**
   * @brief  高频任务 (40kHz，在ADC中断中调用)
-  * @note   根据控制模式执行不同的控制算法
+  * @note   P0优化：统一在ADC中断执行FOC，TIM4只计算速度
+  * @control_flow:
+  *   1. ADC中断 → 读取电流 → 更新Hall角度 → 执行电流环 → SVPWM
+  *   2. TIM4中断 → 计算Hall速度
+  *   3. 主循环 → 速度环 → VOFA+ DMA触发
   */
 void MiniFOC_HighFreqLoop(void)
 {
     if (!foc.motor_running) return;
 
-    /* 转子状态在电流环中统一读取（避免双重调用）*/
-
-    switch (foc.mode) {
-        case MODE_VF_OPENLOOP:
-            /* V/F 开环控制 */
-            MiniFOC_VF_Step();
-            break;
-
-        case MODE_Current_SINGLE:
-            /* 电流单闭环 */
-            MiniFOC_CurrentLoop();
-            break;
-
-        case MODE_VelCur_DOUBLE:
-            /* 速度-电流双闭环 */
-            MiniFOC_CurrentLoop();
-            break;
-
-        case MODE_Sensor_Hall:
-            /* 霍尔有感控制 */
-            MiniFOC_CurrentLoop();
-            break;
-
-        default:
-            /* 其他模式暂未实现，停止输出 */
-            SVPWM_EmergencyStop();
-            break;
-    }
+    /* MiniFOC_CurrentLoop() 处理所有模式的电流环和SVPWM
+     * - VF/I/F模式：使用内部vf_elec_angle
+     * - Hall模式：使用Hall传感器角度
+     */
+    MiniFOC_CurrentLoop();
 }
 
 /**
