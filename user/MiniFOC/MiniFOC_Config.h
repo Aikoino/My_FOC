@@ -54,6 +54,23 @@
 #define MOTOR_PHASE_RESISTANCE  0.5f       /* 相电阻 (Ω) - 保守值 */
 #define MOTOR_PHASE_INDUCTANCE  0.001f     /* 相电感 (H) - 保守值 */
 
+/* ========== 无感观测器参数 ========== */
+
+/* 磁链观测器参数 */
+#define MOTOR_FLUX_LINKAGE      0.012f     /* 磁链 (Wb) - 典型值 */
+#define MOTOR_D_AXIS_INDUCTANCE 0.001f    /* D轴电感 (H) - 典型值 */
+#define MOTOR_Q_AXIS_INDUCTANCE 0.001f    /* Q轴电感 (H) - 典型值 */
+
+/* PLL锁相环参数 */
+#define PLL_KP      20.0f                 /* PLL比例增益 */
+#define PLL_KI      200.0f                /* PLL积分增益 */
+#define PLL_SAMPLE_TIME  0.00005f         /* PLL采样周期 (s) = 20kHz */
+
+/* 霍尔+无感切换策略 */
+#define OBSERVER_SWITCH_SPEED_LOW  100.0f   /* 切换到霍尔的最低转速 (rpm) */
+#define OBSERVER_SWITCH_SPEED_HIGH 200.0f   /* 切换到无感的最低转速 (rpm) */
+#define OBSERVER_SWITCH_HYSTERESIS 50.0f    /* 切换滞环 (rpm) */
+
 /* ========== 控制参数 ========== */
 
 /* 默认控制模式（可在UserData_Config.h中修改）*/

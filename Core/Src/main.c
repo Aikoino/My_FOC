@@ -77,10 +77,10 @@ static uint8_t test_step = 0;
 
 /* 控制模式选择（0=VF开环, 1=双闭环, 2=霍尔电流环, 3=霍尔速度环）
  * 按按键循环切换：0→1→2→3→0
- * - mode 0: VF压频比开环（800rpm，适合快速测试）
- * - mode 1: 速度-电流双闭环（800rpm，稳定运行）
- * - mode 2: 霍尔电流环（5A，适合调试电流环参数）
- * - mode 3: 霍尔速度环（800rpm，霍尔传感器验证）
+ * - mode 0: VF压频比开环（800rpm，开环角度，适合快速测试）
+ * - mode 1: 速度-电流双闭环（800rpm，VF开环角度+速度环，无传感器）
+ * - mode 2: 霍尔电流环（5A，霍尔传感器角度，电流闭环）
+ * - mode 3: 霍尔速度环（800rpm，霍尔传感器角度+速度环）
  * 反转可通过 CAN 指令发送负转速实现
  */
 static uint8_t use_hall_mode = 0;  /* 默认使用 VF 开环 */
@@ -143,8 +143,11 @@ int main(void)
   MX_FDCAN1_Init();
   /* USER CODE BEGIN 2 */
   HAL_GPIO_WritePin(GPIOC, LED2_Pin|LED3_Pin, GPIO_PIN_RESET);
+
+  /*  MiniFOC初始化（必须最先调用）*/
+  MiniFOC_Init();
+
   BSP_Button_Init();
-  BSP_ADC_Init();
 
   /* 初始化霍尔传感器（读 GPIO 获取初始角度）*/
   BSP_Hall_Init();
@@ -157,20 +160,19 @@ int main(void)
   CAN_Init_NoIRQ();
   HAL_GPIO_TogglePin(GPIOC, LED3_Pin);
 
-  /* ADC 最后初始化 */
+  /* ADC 最后初始化（必须在PWM启动前完成电流采样校准）*/
   BSP_ADC_Init();
   HAL_GPIO_TogglePin(GPIOC, LED3_Pin);
 
-  /* Start TIM1 PWM (所有通道) */
+  /* ✅ 安全启动：PWM通道延迟启动（参考F盘）
+   * 上电时只启动定时器和CH4（ADC触发用）
+   * CH1/2/3（功率输出）在按键按下时才启动
+   */
   HAL_TIM_Base_Start(&htim1);
-  HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
-  HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_2);
-  HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_3);
-  HAL_TIMEx_PWMN_Start(&htim1, TIM_CHANNEL_1);
-  HAL_TIMEx_PWMN_Start(&htim1, TIM_CHANNEL_2);
-  HAL_TIMEx_PWMN_Start(&htim1, TIM_CHANNEL_3);
-  HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_4);
-  HAL_GPIO_TogglePin(GPIOC, LED3_Pin);
+  HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_4);  /* 只启动CH4，用于ADC触发 */
+
+  /* LED2 OFF = 电机停止（上电默认停止）*/
+  HAL_GPIO_WritePin(GPIOC, LED2_Pin, GPIO_PIN_SET);
 
   /* Start TIM4 Hall Sensor */
   HAL_TIMEx_HallSensor_Start_IT(&htim4);
@@ -209,20 +211,20 @@ int main(void)
                     } else {
                         /* 启动电机（根据模式选择）*/
                         if (use_hall_mode == 0) {
-                            /* VF 开环模式（800rpm正转）*/
+                            /* VF 开环模式（800rpm，开环角度）*/
                             MiniFOC_SetMode(MODE_VF_OPENLOOP);
                             MiniFOC_SetTargetSpeed(800.0f);
                         } else if (use_hall_mode == 1) {
-                            /* 速度-电流双闭环模式（800rpm）*/
+                            /* 速度-电流双闭环模式（800rpm，VF开环角度+速度环）*/
                             MiniFOC_SetMode(MODE_VelCur_DOUBLE);
                             MiniFOC_SetTargetSpeed(800.0f);
                         } else if (use_hall_mode == 2) {
-                            /* 霍尔电流环模式（5A启动电流）*/
-                            MiniFOC_SetMode(MODE_Sensor_Hall);
+                            /* 霍尔电流环模式（5A，霍尔角度，电流闭环）*/
+                            MiniFOC_SetMode(MODE_Sensor_Hall_I);
                             MiniFOC_SetTargetCurrent(5.0f);
                         } else if (use_hall_mode == 3) {
-                            /* 霍尔速度环模式（800rpm）*/
-                            MiniFOC_SetMode(MODE_Sensor_Hall);
+                            /* 霍尔速度环模式（800rpm，霍尔角度+速度环）*/
+                            MiniFOC_SetMode(MODE_Sensor_Hall_S);
                             MiniFOC_SetTargetSpeed(800.0f);
                         }
                         foc.bus_voltage = vbus_voltage;  /* 使用实际母线电压 */
@@ -294,7 +296,7 @@ int main(void)
             HAL_UART_Transmit(&huart3, (uint8_t*)buf, len, 10);
         }
 
-        /* ✅ 对齐F盘：VOFA+发送三相电流 + 三相占空比（6个float）*/
+        /*  VOFA+发送三相电流 + 三相占空比（6个float）*/
         BSP_UART_VOFA_SendFloats(ia_val, ib_val, ic_val, duty_a_val, duty_b_val, duty_c_val);
     }
 

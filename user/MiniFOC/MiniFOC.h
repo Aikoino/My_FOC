@@ -30,11 +30,11 @@ extern "C" {
 
 /* ========== 控制模式选择 ========== */
 typedef enum {
-    MODE_VF_OPENLOOP      = 0,   /* VF压频比开环 */
-    MODE_Current_SINGLE   = 3,   /* 电流单闭环 */
-    MODE_VelCur_DOUBLE    = 4,   /* 速度-电流串级闭环 */
-    MODE_Sensor_Hall      = 6,   /* 有感霍尔 */
-    MODE_Sensorless_SMO   = 8,   /* 无感SMO */
+    MODE_VF_OPENLOOP      = 0,   /* VF压频比开环（开环角度） */
+    MODE_Current_SINGLE   = 3,   /* 电流单闭环（VF角度） */
+    MODE_VelCur_DOUBLE    = 4,   /* 速度-电流串级闭环（VF角度+速度环） */
+    MODE_Sensor_Hall_I    = 6,   /* 霍尔电流环（霍尔角度，电流闭环） */
+    MODE_Sensor_Hall_S    = 7,   /* 霍尔速度环（霍尔角度+速度环） */
 } ControlMode_t;
 
 /* ========== 速度指令源 ========== */
@@ -105,6 +105,11 @@ typedef struct {
 
     /* 霍尔角度校准偏移（rad）*/
     float hall_angle_offset;         /* Hall 模式电角度校准偏移 */
+
+    /* ========== 无感观测器（暂未使用）========== */
+    bool observer_enabled;         /* 无感观测器使能标志 */
+    uint8_t observer_mode;         /* 0=霍尔, 1=无感, 2=切换中 */
+    float observer_speed_threshold; /* 切换速度阈值 (rpm) */
 
 } MiniFOC_t;
 
@@ -204,6 +209,36 @@ void MiniFOC_SpeedLoop(void);
   * @param  offset_rad: 偏移角度（rad），例如 PI/2 = 1.5708f
   */
 void MiniFOC_SetHallAngleOffset(float offset_rad);
+
+/* ========== 无感观测器接口 ========== */
+
+/**
+  * @brief  更新无感观测器（在ADC中断中调用）
+  * @param  I_alpha: α轴电流 (A)
+  * @param  I_beta: β轴电流 (A)
+  * @param  U_alpha: α轴电压 (V)
+  * @param  U_beta: β轴电压 (V)
+  * @retval None
+  */
+void MiniFOC_UpdateObserver(float I_alpha, float I_beta, float U_alpha, float U_beta);
+
+/**
+  * @brief  获取观测器电角度
+  * @retval 电角度 (rad)
+  */
+float MiniFOC_GetObserverAngle(void);
+
+/**
+  * @brief  获取观测器转速
+  * @retval 转速 (rpm)
+  */
+float MiniFOC_GetObserverSpeed(void);
+
+/**
+  * @brief  获取当前观测器模式
+  * @retval 0=霍尔, 1=无感, 2=切换中
+  */
+uint8_t MiniFOC_GetObserverMode(void);
 
 #ifdef __cplusplus
 }

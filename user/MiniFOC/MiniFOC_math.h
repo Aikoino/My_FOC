@@ -183,6 +183,16 @@ static inline float Limit(float value, float min_val, float max_val)
 float Fast_Normalize_Angle(float sin_val, float cos_val);
 
 /**
+  * @brief  角度归一化（别名，兼容旧代码）
+  * @param  angle: 输入角度 (rad)
+  * @retval 归一化到 [0, 2π)
+  */
+static inline float Value_normalize(float angle)
+{
+    return Normalize_Angle(angle);
+}
+
+/**
   * @brief  线性插值
   */
 static inline float Linear_Interpolate(float x, float x1, float y1, float x2, float y2)
