@@ -2,8 +2,8 @@
   ******************************************************************************
   * @file           : MiniFOC.c
   * @brief          : MiniFOC 核心实现（电流环 + 速度环）
-  * @version        : 2.1.0
-  * @description    : 4种控制模式：VF开环/双闭环/霍尔电流环/霍尔速度环
+  * @version        : 2.0.0
+  * @description    : 简化版，暂不使用无感观测器
   ******************************************************************************
   * @attention
   * Copyright (c) 2026 STMicroelectronics.
@@ -44,6 +44,7 @@ void MiniFOC_Init(void)
     foc.cmd_source = DEFAULT_CMD_SOURCE;
     foc.motor_running = false;
     foc.fault_flag = false;
+
     foc.bus_voltage = 24.0f;
     foc.hall_angle_offset = 0.0f;
 
@@ -74,12 +75,16 @@ void MiniFOC_Init(void)
     foc.Target_Iq = 0.0f;
     foc.Ud = 0.0f;
     foc.Uq = 0.0f;
+
     foc.vf_elec_angle = 0.0f;
     foc.vf_start_time = 0;
+
     foc.rotor_angle = 0.0f;
     foc.rotor_speed = 0.0f;
+
     foc.current_offset_u = 0.0f;
     foc.current_offset_v = 0.0f;
+
     foc.duty_a = 0.0f;
     foc.duty_b = 0.0f;
     foc.duty_c = 0.0f;
@@ -141,102 +146,87 @@ void MiniFOC_CurrentLoop(void)
 {
     if (!foc.motor_running) return;
 
-    /* ========== VF/I/F/双闭环模式（开环角度）========== */
+    /* ========== VF/I/F 开环模式（开环角度）========== */
     if (foc.mode == MODE_VF_OPENLOOP || foc.mode == MODE_Current_SINGLE ||
         foc.mode == MODE_VelCur_DOUBLE) {
-        /* 读取三相电流 */
-        float Ia = foc.phase_current_u - foc.current_offset_u;
-        float Ib = foc.phase_current_v - foc.current_offset_v;
-        float Ic = -Ia - Ib;
+        /* VF/I/F/双闭环模式：使用内部 VF 电角度（开环）*/
+    float Ia = foc.phase_current_u - foc.current_offset_u;
+    float Ib = foc.phase_current_v - foc.current_offset_v;
+    float Ic = -Ia - Ib;
 
-        /* Clarke 变换 */
-        float Ialpha, Ibeta;
-        clarke(&Ialpha, &Ibeta, Ia, Ib);
+    /* 2. Clarke 变换 */
+    float Ialpha, Ibeta;
+    clarke(&Ialpha, &Ibeta, Ia, Ib);
 
-        /* Park 变换（使用 VF 开环角度）*/
-        float sine = fast_sin(foc.vf_elec_angle);
-        float cosine = fast_cos(foc.vf_elec_angle);
-        park(&foc.Id, &foc.Iq, Ialpha, Ibeta, sine, cosine);
+    /* 3. Park 变换 */
+    float sine = fast_sin(foc.vf_elec_angle);
+    float cosine = fast_cos(foc.vf_elec_angle);
+    park(&foc.Id, &foc.Iq, Ialpha, Ibeta, sine, cosine);
 
-        /* 电流环 PI 控制 */
-        foc.Target_Id = 0.0f;
+    /* 4. 电流环 PI 控制 */
+    foc.Target_Id = 0.0f;
 
-        if (foc.mode == MODE_Current_SINGLE) {
-            foc.Target_Iq = foc.target_current;
-        } else if (foc.mode == MODE_VelCur_DOUBLE) {
-            /* 双闭环：Target_Iq 由速度环更新 */
-        } else {
-            foc.Target_Iq = 0.0f;
-        }
+    if (foc.mode == MODE_Current_SINGLE || foc.mode == MODE_Sensor_Hall_I || foc.mode == MODE_Sensor_Hall_S) {
+        foc.Target_Iq = foc.target_current;
+    } else if (foc.mode == MODE_VelCur_DOUBLE) {
+        /* 双闭环：Target_Iq 由速度环更新 */
+    } else {
+        foc.Target_Iq = 0.0f;
+    }
 
-        foc.Ud = 0.0f;
-        foc.current_pid.run.Ref = foc.Target_Iq;
-        foc.current_pid.run.Fbk = foc.Iq;
-        foc.Uq = PID_Calc(&foc.current_pid);
+    foc.Ud = 0.0f;
+    foc.current_pid.run.Ref = foc.Target_Iq;
+    foc.current_pid.run.Fbk = foc.Iq;
+    foc.Uq = PID_Calc(&foc.current_pid);
 
-        /* 电压限幅 */
-        float Vmax = foc.bus_voltage * 0.95f;
-        float voltage_mag = sqrtf(foc.Ud * foc.Ud + foc.Uq * foc.Uq);
-        if (voltage_mag > Vmax) {
-            float ratio = Vmax / voltage_mag;
-            foc.Ud *= ratio;
-            foc.Uq *= ratio;
-        }
+    /* 5. 电压限幅 */
+    float Vmax = foc.bus_voltage * 0.95f;
+    float voltage_mag = sqrtf(foc.Ud * foc.Ud + foc.Uq * foc.Uq);
+    if (voltage_mag > Vmax) {
+        float ratio = Vmax / voltage_mag;
+        foc.Ud *= ratio;
+        foc.Uq *= ratio;
+    }
 
-        /* 逆 Park + SVPWM */
-        float Ualpha, Ubeta;
-        ipark(&Ualpha, &Ubeta, foc.Ud, foc.Uq, sine, cosine);
+    /* 6. 逆 Park + SVPWM */
+    float Ualpha, Ubeta;
+    ipark(&Ualpha, &Ubeta, foc.Ud, foc.Uq, sine, cosine);
 
-        uint32_t duty_a, duty_b, duty_c;
-        SVPWM_SaddleWave(Ualpha, Ubeta, foc.bus_voltage, &duty_a, &duty_b, &duty_c);
+    uint32_t duty_a, duty_b, duty_c;
+    SVPWM_SaddleWave(Ualpha, Ubeta, foc.bus_voltage, &duty_a, &duty_b, &duty_c);
 
-        TIM1->CCR3 = duty_a;
-        TIM1->CCR2 = duty_b;
-        TIM1->CCR1 = duty_c;
+    TIM1->CCR3 = duty_a;
+    TIM1->CCR2 = duty_b;
+    TIM1->CCR1 = duty_c;
 
-        foc.duty_a = (float)duty_a;
-        foc.duty_b = (float)duty_b;
-        foc.duty_c = (float)duty_c;
+    foc.duty_a = (float)duty_a;
+    foc.duty_b = (float)duty_b;
+    foc.duty_c = (float)duty_c;
 
-        /* VF/双闭环模式更新电角度 */
-        if (foc.mode == MODE_VF_OPENLOOP || foc.mode == MODE_VelCur_DOUBLE) {
-            MiniFOC_VF_Step();
-        }
-
-        return;
+    /* VF/双闭环模式更新电角度 */
+    if (foc.mode == MODE_VF_OPENLOOP || foc.mode == MODE_VelCur_DOUBLE) {
+        MiniFOC_VF_Step();
     }
 
     /* ========== 霍尔传感器模式（霍尔角度）========== */
     if (foc.mode == MODE_Sensor_Hall_I || foc.mode == MODE_Sensor_Hall_S) {
-        /* 读取三相电流 */
+        /* 霍尔电流环/速度环：使用霍尔传感器角度（闭环）*/
         float Ia = foc.phase_current_u - foc.current_offset_u;
         float Ib = foc.phase_current_v - foc.current_offset_v;
         float Ic = -Ia - Ib;
 
-        /* Clarke 变换 */
+        /* 2. Clarke 变换 */
         float Ialpha, Ibeta;
         clarke(&Ialpha, &Ibeta, Ia, Ib);
 
-        /* 读取霍尔传感器 */
+        /* 3. 读取霍尔传感器 */
         BSP_Hall_Read();
 
-        /* 调试：霍尔状态 */
         uint8_t ha = hall_sensor.ha_raw;
         uint8_t hb = hall_sensor.hb_raw;
         uint8_t hc = hall_sensor.hc_raw;
         uint8_t all_zero = ((ha | hb | hc) == 0);
         uint8_t all_one  = ((ha & hb & hc) == 1);
-        float hall_angle = BSP_Hall_GetAngle();
-        float hall_speed = BSP_Hall_GetSpeed();
-
-        static uint32_t hall_debug_counter = 0;
-        if (++hall_debug_counter % 1000 == 1) {
-            extern UART_HandleTypeDef huart3;
-            char buf[128];
-            int len = sprintf(buf, "[HALL] ha=%d hb=%d hc=%d angle=%.3f speed=%.1f\r\n",
-                             ha, hb, hc, hall_angle, hall_speed);
-            HAL_UART_Transmit(&huart3, (uint8_t*)buf, len, 10);
-        }
 
         static uint32_t hall_invalid_counter = 0;
 
@@ -250,47 +240,36 @@ void MiniFOC_CurrentLoop(void)
             foc.rotor_speed = 0.0f;
             foc.rotor_angle = foc.rotor_angle;
         } else {
-            foc.rotor_angle = hall_angle;
-            foc.rotor_speed = hall_speed;
+            foc.rotor_angle = BSP_Hall_GetAngle();
+            foc.rotor_speed = BSP_Hall_GetSpeed();
             hall_invalid_counter = 0;
         }
 
-        /* 计算电角度 */
+        /* 4. 计算电角度 */
         float elec_angle = foc.rotor_angle * (float)MOTOR_POLE_PAIRS + foc.hall_angle_offset;
 
-        /* Park 变换 */
+        /* 5. Park 变换 */
         foc.rotor_sine = fast_sin(elec_angle);
         foc.rotor_cosine = fast_cos(elec_angle);
         park(&foc.Id, &foc.Iq, Ialpha, Ibeta, foc.rotor_sine, foc.rotor_cosine);
 
-        /* 调试：Park结果 */
-        if (hall_debug_counter % 1000 == 1) {
-            extern UART_HandleTypeDef huart3;
-            char buf[128];
-            int len = sprintf(buf, "[PARK] Id=%.3f Iq=%.3f angle=%.3f\r\n",
-                             foc.Id, foc.Iq, elec_angle);
-            HAL_UART_Transmit(&huart3, (uint8_t*)buf, len, 10);
+        /* 6. 电流环 PI 控制 */
+        foc.Target_Id = 0.0f;
+
+        if (foc.mode == MODE_Sensor_Hall_I) {
+            /* 霍尔电流环：使用目标电流 */
+            foc.Target_Iq = foc.target_current;
+        } else if (foc.mode == MODE_Sensor_Hall_S) {
+            /* 霍尔速度环：Target_Iq 由速度环更新，这里不需要设置 */
         }
 
-        /* 电流环 PI 控制 */
-        foc.Target_Id = 0.0f;
-        foc.Target_Iq = foc.target_current;
         foc.Ud = 0.0f;
 
         foc.current_pid.run.Ref = foc.Target_Iq;
         foc.current_pid.run.Fbk = foc.Iq;
         foc.Uq = PID_Calc(&foc.current_pid);
 
-        /* 调试：PID输出 */
-        if (hall_debug_counter % 1000 == 1) {
-            extern UART_HandleTypeDef huart3;
-            char buf[128];
-            int len = sprintf(buf, "[PID] Ref=%.2f Fbk=%.2f Out=%.2f\r\n",
-                             foc.current_pid.run.Ref, foc.current_pid.run.Fbk, foc.Uq);
-            HAL_UART_Transmit(&huart3, (uint8_t*)buf, len, 10);
-        }
-
-        /* 电压限幅 */
+        /* 7. 电压限幅 */
         float Vmax = foc.bus_voltage * 0.95f;
         float voltage_mag = sqrtf(foc.Ud * foc.Ud + foc.Uq * foc.Uq);
         if (voltage_mag > Vmax) {
@@ -299,7 +278,7 @@ void MiniFOC_CurrentLoop(void)
             foc.Uq *= ratio;
         }
 
-        /* 逆 Park + SVPWM */
+        /* 8. 逆 Park + SVPWM */
         float Ualpha, Ubeta;
         ipark(&Ualpha, &Ubeta, foc.Ud, foc.Uq, foc.rotor_sine, foc.rotor_cosine);
 
@@ -313,14 +292,6 @@ void MiniFOC_CurrentLoop(void)
         foc.duty_a = (float)duty_a;
         foc.duty_b = (float)duty_b;
         foc.duty_c = (float)duty_c;
-
-        /* 调试：占空比 */
-        if (hall_debug_counter % 1000 == 1) {
-            extern UART_HandleTypeDef huart3;
-            char buf[128];
-            int len = sprintf(buf, "[PWM] A=%lu B=%lu C=%lu\r\n", duty_a, duty_b, duty_c);
-            HAL_UART_Transmit(&huart3, (uint8_t*)buf, len, 10);
-        }
     }
 }
 
@@ -330,14 +301,21 @@ void MiniFOC_MainLoop(void)
 
     switch (foc.mode) {
         case MODE_VelCur_DOUBLE:
+            /* 速度-电流双闭环（开环角度+速度环）*/
             MiniFOC_SpeedLoop();
             break;
 
         case MODE_Sensor_Hall_S:
+            /* 霍尔速度环（霍尔角度+速度环）*/
             MiniFOC_SpeedLoop();
             break;
 
+        case MODE_Sensor_Hall_I:
+            /* 霍尔电流环（霍尔角度+电流环，无需速度环）*/
+            break;
+
         default:
+            /* 其他模式不需要主循环任务 */
             break;
     }
 }
@@ -346,10 +324,17 @@ void MiniFOC_SpeedLoop(void)
 {
     if (foc.mode != MODE_VelCur_DOUBLE && foc.mode != MODE_Sensor_Hall_S) return;
 
+    /* 降低速度环执行频率（10 分频：1kHz → 100Hz）*/
     if (++speed_loop_count >= SPEED_LOOP_DIVIDER) {
         speed_loop_count = 0;
+
+        /* 速度环 PI 控制 */
         foc.Target_Iq = PID_Calc(&foc.speed_pid);
+
+        /* Id 给定始终为 0（MTPA 控制）*/
         foc.Target_Id = 0.0f;
+
+        /* 更新电流环 PID 的给定值 */
         foc.current_pid.run.Ref = foc.Target_Iq;
     }
 }
@@ -368,6 +353,7 @@ void MiniFOC_SetTargetSpeed(float speed)
 {
     foc.target_speed = Limit(speed, -MOTOR_MAX_SPEED, MOTOR_MAX_SPEED);
     foc.speed_pid.run.Ref = foc.target_speed;
+    foc.target_current = foc.target_speed / 10.0f;  /* 临时：速度转电流比例 */
 }
 
 void MiniFOC_SetTargetCurrent(float current)
@@ -400,10 +386,6 @@ void MiniFOC_MotorEnable(bool enable)
         HAL_TIMEx_PWMN_Start(&htim1, TIM_CHANNEL_2);
         HAL_TIMEx_PWMN_Start(&htim1, TIM_CHANNEL_3);
         __enable_irq();
-
-        len = sprintf(buf, "[MOTOR] After Start: CCR1=%lu, CCR2=%lu, CCR3=%lu\r\n",
-                     TIM1->CCR1, TIM1->CCR2, TIM1->CCR3);
-        HAL_UART_Transmit(&huart3, (uint8_t*)buf, len, 10);
 
         PID_Reset(&foc.current_pid);
         PID_Reset(&foc.current_pid_d);
@@ -466,11 +448,12 @@ void MiniFOC_UpdateCurrent(float iu, float iv)
 /* 无感观测器接口（暂未使用） */
 void MiniFOC_UpdateObserver(float I_alpha, float I_beta, float U_alpha, float U_beta)
 {
+    /* 暂未实现 */
 }
 
 float MiniFOC_GetObserverAngle(void)
 {
-    return foc.vf_elec_angle;
+    return foc.vf_elec_angle;  /* 临时返回 VF 角度 */
 }
 
 float MiniFOC_GetObserverSpeed(void)

@@ -99,6 +99,7 @@ typedef struct {
     /* 预定位（Hall 模式启动用）*/
     uint32_t pre_position_start;     /* 预定位开始时间戳 */
     bool pre_position_active;        /* 是否在预定位阶段 */
+    float pre_position_current;      /* 预定位电流给定 */
 
     float rotor_sine;                /* 电角度 sin 值 */
     float rotor_cosine;              /* 电角度 cos 值 */
