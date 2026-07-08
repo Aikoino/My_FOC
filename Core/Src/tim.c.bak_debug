@@ -334,25 +334,13 @@ void HALL_Init_Electrical_Angle(void)
 void HALL_Get_Electrical_Angle(void *pHandleVoid)
 {
     HALL_Handle_t *phandle = (HALL_Handle_t *)pHandleVoid;
-    static uint32_t last_change_time = 0;  /* 上次状态变化时间 */
-    uint32_t current_time = HAL_GetTick();
-
     phandle->hHighSpeedCapture = HAL_TIM_ReadCapturedValue(&htim4, TIM_CHANNEL_1);
-
-    /* ✅ 关键修正：先保存当前状态到bPrevHallState，再读取新的HallState */
-    /* 这样可以保证：bPrevHallState = 旧状态，HallState = 新状态 */
-    phandle->bPrevHallState = phandle->HallState;  /* 先保存旧状态 */
-    phandle->HallState = HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_8);  /* 再读新状态 */
+    phandle->HallState = HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_8);
     phandle->HallState |= HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_7) << 1;
     phandle->HallState |= HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_6) << 2;
 
     /* 检查霍尔状态是否改变（电机是否转动）*/
     uint8_t bStateChanged = (phandle->HallState != phandle->bPrevHallState);
-
-    /* 更新状态变化时间 */
-    if (bStateChanged) {
-        last_change_time = current_time;
-    }
 
     switch (phandle->HallState)
     {
@@ -441,28 +429,13 @@ void HALL_Get_Electrical_Angle(void *pHandleVoid)
     if (debug_cnt % 10 == 0) {
         extern UART_HandleTypeDef huart3;
         char buf[256];
-    }
-
-    /* ✅ 超时检测：最后执行，超时则直接return，避免重新计算速度 */
-    if (!bStateChanged && (current_time - last_change_time > 50)) {
-        /* 50ms超时 → 电机停止 → 清零并退出 */
-        phandle->HallSpeed = 0.0f;
-        phandle->TempSpeed = 0.0f;
-        phandle->AvrElSpeedDpp = 0.0f;
-        phandle->hHighSpeedCapture = 0;
-        phandle->Direction = 0;
-        phandle->DeltaAngle = 0.0f;
-
-        /* 调试输出：超时信息 */
-        if (debug_cnt % 10 == 0) {
-            extern UART_HandleTypeDef huart3;
-            char buf[128];
-            int len = sprintf(buf, "[TIMEOUT] current=%lu, last=%lu, diff=%lu\r\n",
-                            current_time, last_change_time, current_time - last_change_time);
-            HAL_UART_Transmit(&huart3, (uint8_t*)buf, len, 10);
-        }
-
-        return;  /* 直接返回，不执行后面的速度计算 */
+        int len = sprintf(buf, "[TIM4_IRQ] capture=%d HallState=%d Ha=%d Hb=%d Hc=%d\r\n",
+                         (int)phandle->hHighSpeedCapture,
+                         (int)phandle->HallState,
+                         (phandle->HallState >> 2) & 0x01,
+                         (phandle->HallState >> 1) & 0x01,
+                         phandle->HallState & 0x01);
+        HAL_UART_Transmit(&huart3, (uint8_t*)buf, len, 10);
     }
 
     /* 计算转速（基于TIM4捕获值，精度更高）*/
@@ -482,58 +455,25 @@ void HALL_Get_Electrical_Angle(void *pHandleVoid)
         if (debug_cnt % 10 == 0) {
             extern UART_HandleTypeDef huart3;
             char buf[128];
+            int len = sprintf(buf, "[TIM4] TempSpeed=%.1f rpm, Direction=%d\r\n",
+                             phandle->TempSpeed, phandle->Direction);
+            HAL_UART_Transmit(&huart3, (uint8_t*)buf, len, 10);
         }
 
         FirstOrderRC_LPF(&phandle->HallSpeed, phandle->TempSpeed, 0.2379f); /* 一阶低通 */
         phandle->AvrElSpeedDpp = phandle->AvrElSpeedDpp * phandle->Direction;
+    } else {
+        /* 捕获值为0 → 电机停止 → 清零 */
+        phandle->HallSpeed = 0.0f;
+        phandle->TempSpeed = 0.0f;
+        phandle->AvrElSpeedDpp = 0.0f;
     }
-    /* 注意：else分支已在上面超时检测中处理，这里不需要重复清零 */
+
+    /* 更新上一次霍尔状态（必须在switch后）*/
+    phandle->bPrevHallState = phandle->HallState;
 
     /* 计算角度补偿量（用于ADC中断累加）*/
     phandle->DeltaAngle = (phandle->MeasuredElAngle - phandle->HallElAngle) / 10000.0f;
-
-    /* ✅ 一圈校准：当转子转到PHASE_SHIFT_ANGLE时强制同步
-     * 作用：消除累积误差，防止长时间运行后角度漂移
-     * 原理：每60°机械角校准一次，将实测角度同步到霍尔累加角度
-     *
-     * ⚠️ 注意：反转功能（NEGATIVE）未经实际测试，如有问题可删除else if分支
-     */
-    static uint32_t hall_calib_counter = 0;  /* 校准计数器（调试用）*/
-    float mech_angle = phandle->HallElAngle / (float)MOTOR_POLE_PAIRS;  /* 电角度→机械角度 */
-
-    /* 校准点1：PHASE_SHIFT_ANGLE + 容差范围 */
-    if (mech_angle >= (PHASE_SHIFT_ANGLE - 0.15f) && mech_angle <= (PHASE_SHIFT_ANGLE + 0.15f)) {
-        if (phandle->Direction == POSITIVE) {
-            phandle->HallElAngle = phandle->MeasuredElAngle;
-            hall_calib_counter++;
-
-            /* 调试输出：校准信息（每100次打印一次）*/
-            if (hall_calib_counter % 100 == 0 && debug_cnt % 10 == 0) {
-                extern UART_HandleTypeDef huart3;
-                char buf[128];
-                int len = sprintf(buf, "[CALIB] POS %lu times, mech=%.3f, el=%.3f\r\n",
-                                hall_calib_counter, mech_angle, phandle->HallElAngle);
-                HAL_UART_Transmit(&huart3, (uint8_t*)buf, len, 10);
-            }
-        }
-    }
-    /* 校准点2：PHASE_SHIFT_ANGLE + PI/3 + 容差范围（反转时）*/
-    else if (mech_angle >= (PHASE_SHIFT_ANGLE + PI/3.0f - 0.15f) &&
-             mech_angle <= (PHASE_SHIFT_ANGLE + PI/3.0f + 0.15f)) {
-        if (phandle->Direction == NEGATIVE) {
-            phandle->HallElAngle = phandle->MeasuredElAngle;
-            hall_calib_counter++;
-
-            /* 调试输出：校准信息（每100次打印一次）*/
-            if (hall_calib_counter % 100 == 0 && debug_cnt % 10 == 0) {
-                extern UART_HandleTypeDef huart3;
-                char buf[128];
-                int len = sprintf(buf, "[CALIB] NEG %lu times, mech=%.3f, el=%.3f\r\n",
-                                hall_calib_counter, mech_angle, phandle->HallElAngle);
-                HAL_UART_Transmit(&huart3, (uint8_t*)buf, len, 10);
-            }
-        }
-    }
 
     /* ❌ 不要在这里更新 HallElAngle！
      * ✅ HallElAngle 由 ADC 中断累加：HallElAngle += AvrElSpeedDpp

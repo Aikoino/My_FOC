@@ -75,12 +75,13 @@ static float vbus_voltage = 0.0f;
 /* 测试步骤 */
 static uint8_t test_step = 0;
 
-/* 控制模式选择（0=VF开环, 1=IF开环, 2=霍尔电流环, 3=霍尔速度环）
+/* 控制模式选择（0=VF开环, 1=双闭环, 2=霍尔电流环, 3=霍尔速度环）
  * 按按键循环切换：0→1→2→3→0
- * - mode 0: VF压频比开环（800rpm）
- * - mode 1: IF流频比开环（2A启动电流，更平滑）
- * - mode 2: 霍尔电流环（5A启动电流）
- * - mode 3: 霍尔速度环（800rpm）
+ * - mode 0: VF压频比开环（800rpm，适合快速测试）
+ * - mode 1: 速度-电流双闭环（800rpm，稳定运行）
+ * - mode 2: 霍尔电流环（5A，适合调试电流环参数）
+ * - mode 3: 霍尔速度环（800rpm，霍尔传感器验证）
+ * 反转可通过 CAN 指令发送负转速实现
  */
 static uint8_t use_hall_mode = 0;  /* 默认使用 VF 开环 */
 /* USER CODE END PV */
@@ -208,25 +209,36 @@ int main(void)
                     } else {
                         /* 启动电机（根据模式选择）*/
                         if (use_hall_mode == 0) {
-                            /* VF 开环模式（800rpm）*/
+                            /* VF 开环模式（800rpm正转）*/
                             MiniFOC_SetMode(MODE_VF_OPENLOOP);
                             MiniFOC_SetTargetSpeed(800.0f);
                         } else if (use_hall_mode == 1) {
-                            /* 电流单闭环模式（2A启动电流）*/
-                            MiniFOC_SetMode(MODE_Current_SINGLE);
-                            MiniFOC_SetTargetCurrent(2.0f);
+                            /* 速度-电流双闭环模式（800rpm）*/
+                            MiniFOC_SetMode(MODE_VelCur_DOUBLE);
+                            MiniFOC_SetTargetSpeed(800.0f);
                         } else if (use_hall_mode == 2) {
                             /* 霍尔电流环模式（5A启动电流）*/
                             MiniFOC_SetMode(MODE_Sensor_Hall);
                             MiniFOC_SetTargetCurrent(5.0f);
-                        } else {
-                            /* 霍尔速度环模式（800rpm目标速度）*/
+                        } else if (use_hall_mode == 3) {
+                            /* 霍尔速度环模式（800rpm）*/
                             MiniFOC_SetMode(MODE_Sensor_Hall);
                             MiniFOC_SetTargetSpeed(800.0f);
                         }
                         foc.bus_voltage = vbus_voltage;  /* 使用实际母线电压 */
                         MiniFOC_MotorEnable(true);
                         HAL_GPIO_WritePin(GPIOC, LED2_Pin, GPIO_PIN_RESET); /* LED2 ON = 电机运行 */
+
+                        /* 调试：打印霍尔状态和方向（启动时）*/
+                        {
+                            extern UART_HandleTypeDef huart3;
+                            char buf[128];
+                            int len = sprintf(buf, "[INIT] State=0x%02X, Dir=%d, Angle=%.3f\r\n",
+                                            HALL_Handle.HallState,
+                                            HALL_Handle.Direction,
+                                            HALL_Handle.HallElAngle);
+                            HAL_UART_Transmit(&huart3, (uint8_t*)buf, len, 10);
+                        }
                     }
 
                     /* 切换控制模式（仅在停止状态下）*/
@@ -323,9 +335,16 @@ int main(void)
                 MiniFOC_MotorEnable(false);
             }
         } else if (can_rx_id == 0x101 && can_rx_len >= 2) {
-            /* CAN设定转速 */
-            uint16_t speed = (can_rx_data[1] << 8) | can_rx_data[0];
+            /* CAN设定转速（支持正反转）*/
+            int16_t speed = (int16_t)((can_rx_data[1] << 8) | can_rx_data[0]);
             MiniFOC_SetTargetSpeed((float)speed);
+            /* 调试输出：打印转速指令 */
+            {
+                extern UART_HandleTypeDef huart3;
+                char buf[128];
+                int len = sprintf(buf, "[CAN] Speed cmd: %d rpm\r\n", speed);
+                HAL_UART_Transmit(&huart3, (uint8_t*)buf, len, 10);
+            }
         } else if (can_rx_id == 0x102 && can_rx_len >= 2) {
             /* CAN 设置霍尔角度校准偏移 (int16 * 0.01 rad) */
             int16_t offset_raw = (int16_t)((can_rx_data[1] << 8) | can_rx_data[0]);
