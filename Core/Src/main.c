@@ -230,17 +230,6 @@ int main(void)
                         foc.bus_voltage = vbus_voltage;  /* 使用实际母线电压 */
                         MiniFOC_MotorEnable(true);
                         HAL_GPIO_WritePin(GPIOC, LED2_Pin, GPIO_PIN_RESET); /* LED2 ON = 电机运行 */
-
-                        /* 调试：打印霍尔状态和方向（启动时）*/
-                        {
-                            extern UART_HandleTypeDef huart3;
-                            char buf[128];
-                            int len = sprintf(buf, "[INIT] State=0x%02X, Dir=%d, Angle=%.3f\r\n",
-                                            HALL_Handle.HallState,
-                                            HALL_Handle.Direction,
-                                            HALL_Handle.HallElAngle);
-                            HAL_UART_Transmit(&huart3, (uint8_t*)buf, len, 10);
-                        }
                     }
 
                     /* 切换控制模式（仅在停止状态下）*/

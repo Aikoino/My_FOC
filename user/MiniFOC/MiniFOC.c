@@ -21,7 +21,6 @@
 #include "MiniFOC_Transform.h"
 #include "MiniFOC_SVPWM.h"
 #include "stm32g4xx_hal.h"
-#include <stdlib.h>
 #include <string.h>
 
 /* ========== 全局变量 ========== */
@@ -220,27 +219,15 @@ void MiniFOC_CurrentLoop(void)
         /* 读取霍尔传感器 */
         BSP_Hall_Read();
 
-        /* 调试：霍尔状态 */
         uint8_t ha = hall_sensor.ha_raw;
         uint8_t hb = hall_sensor.hb_raw;
         uint8_t hc = hall_sensor.hc_raw;
-        uint8_t all_zero = ((ha | hb | hc) == 0);
-        uint8_t all_one  = ((ha & hb & hc) == 1);
-        float hall_angle = BSP_Hall_GetAngle();
-        float hall_speed = BSP_Hall_GetSpeed();
-
-        static uint32_t hall_debug_counter = 0;
-        if (++hall_debug_counter % 1000 == 1) {
-            extern UART_HandleTypeDef huart3;
-            char buf[128];
-            int len = sprintf(buf, "[HALL] ha=%d hb=%d hc=%d angle=%.3f speed=%.1f\r\n",
-                             ha, hb, hc, hall_angle, hall_speed);
-            HAL_UART_Transmit(&huart3, (uint8_t*)buf, len, 10);
-        }
+        uint8_t hall_invalid = ((ha | hb | hc) == 0) || ((ha & hb & hc) == 1);
+        float hall_angle = BSP_Hall_GetAngle();  /* 已经是电角度（tim.c中已乘极对数）*/
 
         static uint32_t hall_invalid_counter = 0;
 
-        if (all_zero || all_one) {
+        if (hall_invalid) {
             hall_invalid_counter++;
             if (hall_invalid_counter > 200) {
                 foc.mode = MODE_VF_OPENLOOP;
@@ -248,29 +235,19 @@ void MiniFOC_CurrentLoop(void)
                 return;
             }
             foc.rotor_speed = 0.0f;
-            foc.rotor_angle = foc.rotor_angle;
         } else {
             foc.rotor_angle = hall_angle;
-            foc.rotor_speed = hall_speed;
+            foc.rotor_speed = BSP_Hall_GetSpeed();
             hall_invalid_counter = 0;
         }
 
-        /* 计算电角度 */
-        float elec_angle = foc.rotor_angle * (float)MOTOR_POLE_PAIRS + foc.hall_angle_offset;
+        /* 电角度（hall_angle 已是电角度，无需再乘极对数）*/
+        float elec_angle = foc.rotor_angle + foc.hall_angle_offset;
 
         /* Park 变换 */
         foc.rotor_sine = fast_sin(elec_angle);
         foc.rotor_cosine = fast_cos(elec_angle);
         park(&foc.Id, &foc.Iq, Ialpha, Ibeta, foc.rotor_sine, foc.rotor_cosine);
-
-        /* 调试：Park结果 */
-        if (hall_debug_counter % 1000 == 1) {
-            extern UART_HandleTypeDef huart3;
-            char buf[128];
-            int len = sprintf(buf, "[PARK] Id=%.3f Iq=%.3f angle=%.3f\r\n",
-                             foc.Id, foc.Iq, elec_angle);
-            HAL_UART_Transmit(&huart3, (uint8_t*)buf, len, 10);
-        }
 
         /* 电流环 PI 控制 */
         foc.Target_Id = 0.0f;
@@ -280,15 +257,6 @@ void MiniFOC_CurrentLoop(void)
         foc.current_pid.run.Ref = foc.Target_Iq;
         foc.current_pid.run.Fbk = foc.Iq;
         foc.Uq = PID_Calc(&foc.current_pid);
-
-        /* 调试：PID输出 */
-        if (hall_debug_counter % 1000 == 1) {
-            extern UART_HandleTypeDef huart3;
-            char buf[128];
-            int len = sprintf(buf, "[PID] Ref=%.2f Fbk=%.2f Out=%.2f\r\n",
-                             foc.current_pid.run.Ref, foc.current_pid.run.Fbk, foc.Uq);
-            HAL_UART_Transmit(&huart3, (uint8_t*)buf, len, 10);
-        }
 
         /* 电压限幅 */
         float Vmax = foc.bus_voltage * 0.95f;
@@ -313,14 +281,6 @@ void MiniFOC_CurrentLoop(void)
         foc.duty_a = (float)duty_a;
         foc.duty_b = (float)duty_b;
         foc.duty_c = (float)duty_c;
-
-        /* 调试：占空比 */
-        if (hall_debug_counter % 1000 == 1) {
-            extern UART_HandleTypeDef huart3;
-            char buf[128];
-            int len = sprintf(buf, "[PWM] A=%lu B=%lu C=%lu\r\n", duty_a, duty_b, duty_c);
-            HAL_UART_Transmit(&huart3, (uint8_t*)buf, len, 10);
-        }
     }
 }
 
@@ -348,8 +308,16 @@ void MiniFOC_SpeedLoop(void)
 
     if (++speed_loop_count >= SPEED_LOOP_DIVIDER) {
         speed_loop_count = 0;
+
+        /* 速度环 PI 控制 */
+        foc.speed_pid.run.Ref = foc.target_speed;
+        foc.speed_pid.run.Fbk = foc.rotor_speed;  /* 关键：设置速度反馈 */
         foc.Target_Iq = PID_Calc(&foc.speed_pid);
+
+        /* Id 给定始终为 0（MTPA 控制）*/
         foc.Target_Id = 0.0f;
+
+        /* 更新电流环 PID 的给定值 */
         foc.current_pid.run.Ref = foc.Target_Iq;
     }
 }
@@ -384,11 +352,6 @@ void MiniFOC_SetHallAngleOffset(float offset_rad)
 
 void MiniFOC_MotorEnable(bool enable)
 {
-    extern UART_HandleTypeDef huart3;
-    char buf[128];
-    int len = sprintf(buf, "[MOTOR] Enable=%d, mode=%d\r\n", enable, foc.mode);
-    HAL_UART_Transmit(&huart3, (uint8_t*)buf, len, 10);
-
     foc.motor_running = enable;
 
     if (enable) {
@@ -400,10 +363,6 @@ void MiniFOC_MotorEnable(bool enable)
         HAL_TIMEx_PWMN_Start(&htim1, TIM_CHANNEL_2);
         HAL_TIMEx_PWMN_Start(&htim1, TIM_CHANNEL_3);
         __enable_irq();
-
-        len = sprintf(buf, "[MOTOR] After Start: CCR1=%lu, CCR2=%lu, CCR3=%lu\r\n",
-                     TIM1->CCR1, TIM1->CCR2, TIM1->CCR3);
-        HAL_UART_Transmit(&huart3, (uint8_t*)buf, len, 10);
 
         PID_Reset(&foc.current_pid);
         PID_Reset(&foc.current_pid_d);
