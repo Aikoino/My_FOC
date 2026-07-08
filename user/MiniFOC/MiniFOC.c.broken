@@ -88,6 +88,13 @@ void MiniFOC_Init(void)
     foc.vf_elec_angle = 0.0f;
     foc.vf_start_time = 0;
 
+    /* IF 开环初始化 */
+    foc.if_elec_angle = 0.0f;
+    foc.if_freq = 5.0f;              /* 起始频率 5Hz */
+    foc.if_target_freq = 0.0f;
+    foc.if_start_time = 0;
+    foc.if_ramp_rate = 30.0f;        /* 频率爬升速率 30Hz/s（更平滑的启动）*/
+
     /* 转子角度/转速初始化 */
     foc.rotor_angle = 0.0f;
     foc.rotor_speed = 0.0f;
@@ -95,11 +102,6 @@ void MiniFOC_Init(void)
     /* 清空电流采样偏移 */
     foc.current_offset_u = 0.0f;
     foc.current_offset_v = 0.0f;
-
-    /* 占空比初始化 */
-    foc.duty_a = 0.0f;
-    foc.duty_b = 0.0f;
-    foc.duty_c = 0.0f;
 
     /* PWM 清零 */
     TIM1->CCR1 = 0; TIM1->CCR2 = 0; TIM1->CCR3 = 0;
@@ -119,6 +121,11 @@ void MiniFOC_HighFreqLoop(void)
         case MODE_VF_OPENLOOP:
             /* V/F 开环控制 */
             MiniFOC_VF_Step();
+            break;
+
+        case MODE_IF_OPENLOOP:
+            /* IF 流频比开环控制 */
+            MiniFOC_IF_Step();
             break;
 
         case MODE_Current_SINGLE:
@@ -224,11 +231,6 @@ void MiniFOC_VF_Step(void)
     TIM1->CCR3 = duty_a;  /* U 相 → CH3 */
     TIM1->CCR2 = duty_b;  /* V 相 → CH2 */
     TIM1->CCR1 = duty_c;  /* W 相 → CH1 */
-
-    /* 保存占空比供VOFA+显示 */
-    foc.duty_a = (float)duty_a;
-    foc.duty_b = (float)duty_b;
-    foc.duty_c = (float)duty_c;
 }
 
 /**
@@ -236,6 +238,120 @@ void MiniFOC_VF_Step(void)
   * @note   保持电流恒定，频率线性爬升
   *         相当于"假装有传感器"的电流闭环
   */
+void MiniFOC_IF_Step(void)
+{
+    /* ========== 调试输出 ========== */
+    static uint32_t if_call_count = 0;
+    if_call_count++;
+    if (if_call_count == 1) {
+        /* 第一次调用：打印调试信息 */
+        extern UART_HandleTypeDef huart3;
+        char buf[128];
+        int len = sprintf(buf, "[IF] Start! mode=%d, target_current=%.1fA, bus_voltage=%.1fV\r\n",
+                         foc.mode, foc.target_current, foc.bus_voltage);
+        HAL_UART_Transmit(&huart3, (uint8_t*)buf, len, 10);
+    }
+
+    /* ========== 第1步：初始化 IF 参数（第一次调用时）========== */
+    if (foc.if_start_time == 0) {
+        foc.if_start_time = HAL_GetTick();
+        foc.if_freq = 5.0f;  /* 起始频率 5Hz */
+
+        /* 计算目标频率（IF开环用电流目标计算目标转速）*/
+        foc.if_target_freq = foc.target_current * 10.0f;  /* 简单映射：1A → 10Hz */
+
+        /* 限制最小/最大频率 */
+        if (foc.if_target_freq < 15.0f) foc.if_target_freq = 15.0f;    /* 最小 15Hz */
+        if (foc.if_target_freq > 300.0f) foc.if_target_freq = 300.0f;  /* 最大 300Hz */
+
+        extern UART_HandleTypeDef huart3;
+        char buf[128];
+        int len = sprintf(buf, "[IF] Init: if_target_freq=%.1fHz, if_ramp_rate=%.1fHz/s\r\n",
+                         foc.if_target_freq, foc.if_ramp_rate);
+        HAL_UART_Transmit(&huart3, (uint8_t*)buf, len, 10);
+    }
+
+    /* ========== 第2步：频率 ramp（线性爬升）========== */
+    uint32_t elapsed = HAL_GetTick() - foc.if_start_time;
+    float elapsed_sec = (float)elapsed / 1000.0f;  /* 转换为秒 */
+    foc.if_freq = 5.0f + foc.if_ramp_rate * elapsed_sec;  /* if_freq = 5 + 10×t(秒) */
+
+    /* 限制频率不超过目标值 */
+    if (foc.if_freq > foc.if_target_freq) {
+        foc.if_freq = foc.if_target_freq;
+    }
+
+    /* ========== 第3步：积分生成电角度（匀速旋转）========== */
+    foc.if_elec_angle += 2.0f * M_PI * foc.if_freq * CURRENT_LOOP_T;
+    if (foc.if_elec_angle > 2.0f * M_PI) {
+        foc.if_elec_angle -= 2.0f * M_PI;
+    }
+
+    /* ========== 第4步：计算 sin/cos ========== */
+    float sine = sinf(foc.if_elec_angle);
+    float cosine = cosf(foc.if_elec_angle);
+
+    /* ========== 第5步：读取实际电流 ========== */
+    float Ia = foc.phase_current_u - foc.current_offset_u;
+    float Ib = foc.phase_current_v - foc.current_offset_v;
+
+    /* ========== 第6步：Clarke 变换（3相 → αβ）========== */
+    float Ialpha, Ibeta;
+    clarke(&Ialpha, &Ibeta, Ia, Ib);
+
+    /* ========== 第7步：Park 正变换（αβ → dq，用生成的角度）========== */
+    park(&foc.Id, &foc.Iq, Ialpha, Ibeta, sine, cosine);
+
+    /* 同步更新转子状态（供 VOFA+ 和主循环使用）*/
+    foc.rotor_angle = foc.if_elec_angle / (float)MOTOR_POLE_PAIRS;  /* 电角度→机械角度 */
+    foc.rotor_speed = foc.if_freq * 60.0f / (float)MOTOR_POLE_PAIRS; /* 电频率→机械转速 */
+
+    /* ========== 第8步：电流环 PID 控制（独立D/Q轴PID）========== */
+    foc.Target_Id = 0.0f;                     /* d轴给定为 0（最大转矩）*/
+    foc.Target_Iq = foc.target_current;        /* q轴给定 = 目标电流 */
+
+    /* D轴电流环（独立PID）*/
+    foc.current_pid_d.run.Ref = foc.Target_Id;
+    foc.current_pid_d.run.Fbk = foc.Id;
+    foc.Ud = PID_Calc(&foc.current_pid_d);
+
+    /* Q轴电流环（独立PID）*/
+    foc.current_pid.run.Ref = foc.Target_Iq;
+    foc.current_pid.run.Fbk = foc.Iq;
+    foc.Uq = PID_Calc(&foc.current_pid);
+
+    /* ========== 调试输出 ========== */
+    if (if_call_count % 1000 == 0) {  /* 每1000次输出一次（约25Hz）*/
+        extern UART_HandleTypeDef huart3;
+        char buf[128];
+        int len = sprintf(buf, "[IF] Ia=%.2f Ib=%.2f Id=%.2f Iq=%.2f Ud=%.1f Uq=%.1f freq=%.1fHz\r\n",
+                         Ia, Ib, foc.Id, foc.Iq, foc.Ud, foc.Uq, foc.if_freq);
+        HAL_UART_Transmit(&huart3, (uint8_t*)buf, len, 10);
+    }
+
+    /* ========== 第9步：电压限幅（不超过母线电压 95%）========== */
+    float Umag = sqrtf(foc.Ud * foc.Ud + foc.Uq * foc.Uq);
+    float vbus_actual = (foc.bus_voltage > 20.0f) ? foc.bus_voltage : 24.0f;
+    float Umax = vbus_actual * 0.95f;
+
+    if (Umag > Umax) {
+        float scale = Umax / Umag;
+        foc.Ud *= scale;
+        foc.Uq *= scale;
+    }
+
+    /* ========== 第10步：逆 Park + SVPWM ========== */
+    float Ualpha, Ubeta;
+    ipark(&Ualpha, &Ubeta, foc.Ud, foc.Uq, sine, cosine);
+
+    uint32_t duty_a, duty_b, duty_c;
+    SVPWM_SaddleWave(Ualpha, Ubeta, vbus_actual, &duty_a, &duty_b, &duty_c);
+
+    /* 设置 PWM */
+    TIM1->CCR3 = duty_a;  /* U 相 → CH3 */
+    TIM1->CCR2 = duty_b;  /* V 相 → CH2 */
+    TIM1->CCR1 = duty_c;  /* W 相 → CH1 */
+}
 
 /**
   * @brief  电流环闭环控制（40kHz 实时控制）
@@ -252,6 +368,13 @@ void MiniFOC_VF_Step(void)
 void MiniFOC_CurrentLoop(void)
 {
     if (!foc.motor_running) return;
+
+    /* ========== 根据控制模式选择不同的控制策略 ========== */
+    if (foc.mode == MODE_IF_OPENLOOP) {
+        /* IF 开环：生成角度 + 电流环 PID */
+        MiniFOC_IF_Step();
+        return;
+    }
 
     /* 1. 读取三相电流（已校准，单位：A）*/
     float Ia = foc.phase_current_u - foc.current_offset_u;
@@ -286,9 +409,7 @@ void MiniFOC_CurrentLoop(void)
             MiniFOC_VF_Step();
             return;
         }
-        /* 暂时无效时，强制清零转速（避免保留旧值）*/
-        foc.rotor_speed = 0.0f;
-        foc.rotor_angle = foc.rotor_angle;  /* 保留角度，避免跳变 */
+        /* 暂时无效时，仍然使用上一次的角度和转速（不强制清零）*/
     } else {
         /* 角度有效，使用插值后的角度 */
         foc.rotor_angle = BSP_Hall_GetAngle();
@@ -349,11 +470,6 @@ void MiniFOC_CurrentLoop(void)
     TIM1->CCR3 = duty_a;
     TIM1->CCR2 = duty_b;
     TIM1->CCR1 = duty_c;
-
-    /* 保存占空比供VOFA+显示 */
-    foc.duty_a = (float)duty_a;
-    foc.duty_b = (float)duty_b;
-    foc.duty_c = (float)duty_c;
 }
 
 /**

@@ -24,7 +24,7 @@ static float s_current_ki = 0.01f;
 static float s_flux = 0.012f;
 static float s_resistance = 0.5f;
 static float s_inductance = 0.001f;
-static uint16_t s_pole_pairs = 7;
+static uint16_t s_pole_pairs = 4;
 static uint16_t s_openloop_speed = 1000;
 
 /**

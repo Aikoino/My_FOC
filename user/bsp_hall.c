@@ -117,9 +117,14 @@ void BSP_Hall_GetFilteredSignal(uint8_t *ha, uint8_t *hb, uint8_t *hc)
 }
 
 /**
-  * @brief  TIM4 霍尔捕获中断回调（空函数，实际在 tim.c 中处理）
+  * @brief  TIM4捕获回调（HAL库标准回调，在HAL_TIM_IRQHandler中自动调用）
+  * @param  htim: TIM handle
   */
-void BSP_Hall_TIM4_CaptureCallback(void)
+void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim)
 {
-    /* 空函数：TIM4 中断已由 tim.c 的 HALL_Get_Electrical_Angle() 处理 */
+    /* 判断是否是TIM4 */
+    if (htim == &htim4) {
+        /* 调用霍尔处理函数 */
+        HALL_Get_Electrical_Angle(&HALL_Handle);
+    }
 }

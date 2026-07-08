@@ -99,8 +99,8 @@ void TIM1_UP_TIM16_IRQHandler(void)
 打开 `UserData_Config.h`，修改以下参数：
 
 ```c
-/* 极对数 - 查看你的电机铭牌，常见的是 7 或 8 */
-#define MOTOR_POLE_PAIRS     7
+/* 极对数 - LA034-040NN07A 为8极（4对极） */
+#define MOTOR_POLE_PAIRS     4
 
 /* 额定电流 - 根据你的电机修改 */
 #define MOTOR_RATED_CURRENT  5.0f  /* 单位：A */

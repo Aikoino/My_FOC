@@ -75,7 +75,13 @@ static float vbus_voltage = 0.0f;
 /* 测试步骤 */
 static uint8_t test_step = 0;
 
-/* 控制模式选择（0=VF开环, 1=霍尔电流环, 2=霍尔速度环）*/
+/* 控制模式选择（0=VF开环, 1=IF开环, 2=霍尔电流环, 3=霍尔速度环）
+ * 按按键循环切换：0→1→2→3→0
+ * - mode 0: VF压频比开环（800rpm）
+ * - mode 1: IF流频比开环（2A启动电流，更平滑）
+ * - mode 2: 霍尔电流环（5A启动电流）
+ * - mode 3: 霍尔速度环（800rpm）
+ */
 static uint8_t use_hall_mode = 0;  /* 默认使用 VF 开环 */
 /* USER CODE END PV */
 
@@ -127,6 +133,7 @@ int main(void)
   MX_DMA_Init();
   MX_USART3_UART_Init();
   MX_TIM1_Init();
+  MX_TIM4_Init();  /* TIM4霍尔传感器捕获 */
   MX_ADC1_Init();
   MX_ADC2_Init();
   MX_OPAMP1_Init();
@@ -162,6 +169,10 @@ int main(void)
   HAL_TIMEx_PWMN_Start(&htim1, TIM_CHANNEL_2);
   HAL_TIMEx_PWMN_Start(&htim1, TIM_CHANNEL_3);
   HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_4);
+  HAL_GPIO_TogglePin(GPIOC, LED3_Pin);
+
+  /* Start TIM4 Hall Sensor */
+  HAL_TIMEx_HallSensor_Start_IT(&htim4);
   HAL_GPIO_TogglePin(GPIOC, LED3_Pin);
 
   /* Start ADC for Vbus */
@@ -201,6 +212,10 @@ int main(void)
                             MiniFOC_SetMode(MODE_VF_OPENLOOP);
                             MiniFOC_SetTargetSpeed(800.0f);
                         } else if (use_hall_mode == 1) {
+                            /* 电流单闭环模式（2A启动电流）*/
+                            MiniFOC_SetMode(MODE_Current_SINGLE);
+                            MiniFOC_SetTargetCurrent(2.0f);
+                        } else if (use_hall_mode == 2) {
                             /* 霍尔电流环模式（5A启动电流）*/
                             MiniFOC_SetMode(MODE_Sensor_Hall);
                             MiniFOC_SetTargetCurrent(5.0f);
@@ -216,7 +231,7 @@ int main(void)
 
                     /* 切换控制模式（仅在停止状态下）*/
                     if (!foc.motor_running) {
-                        use_hall_mode = (use_hall_mode + 1) % 3;  /* 0→1→2→0循环 */
+                        use_hall_mode = (use_hall_mode + 1) % 4;  /* 0→1→2→3→0循环 */
                     }
                 }
             }
@@ -241,19 +256,34 @@ int main(void)
     /* MiniFOC main loop (1kHz) */
     MiniFOC_MainLoop();
 
-    /* VOFA+ send (2ms, 500Hz) - 关键6通道: target_speed, rotor_speed, Iq, Uq, rotor_angle, sector */
+    /* VOFA+ send (2ms, 500Hz) - 6通道: Ia, Ib, Ic, duty_a, duty_b, rotor_speed */
     if (sys_tick_ms - last_test_ms >= 2) {
         last_test_ms = sys_tick_ms;
         Vbus_Adc_Update();
 
-        float target_spd_val = foc.target_speed;   /* 目标转速 */
-        float rotor_spd_val = foc.rotor_speed;     /* 实际转速 */
-        float iq_val = foc.Iq;                      /* q轴电流 */
-        float uq_val = foc.Uq;                      /* q轴电压 */
-        float angle_val = foc.rotor_angle;          /* 转子角度 */
-        float sector_val = (float)BSP_Hall_GetSector();  /* 扇区 */
+        /* 三相电流 (A) */
+        float ia_val = foc.phase_current_u - foc.current_offset_u;
+        float ib_val = foc.phase_current_v - foc.current_offset_v;
+        float ic_val = foc.phase_current_w - foc.current_offset_w;
 
-        BSP_UART_VOFA_SendFloats(target_spd_val, rotor_spd_val, iq_val, uq_val, angle_val, sector_val);
+        /* 占空比 (0-8000) */
+        float duty_a_val = foc.duty_a;
+        float duty_b_val = foc.duty_b;
+        float duty_c_val = foc.duty_c;
+
+        /* 串口打印（500ms一次）*/
+        static uint32_t last_print_ms = 0;
+        if (sys_tick_ms - last_print_ms >= 500) {
+            last_print_ms = sys_tick_ms;
+            extern UART_HandleTypeDef huart3;
+            char buf[256];
+            int len = sprintf(buf, "[VOFA] Ia=%.2f Ib=%.2f Ic=%.2f dutyA=%.0f dutyB=%.0f dutyC=%.0f\r\n",
+                             ia_val, ib_val, ic_val, duty_a_val, duty_b_val, duty_c_val);
+            HAL_UART_Transmit(&huart3, (uint8_t*)buf, len, 10);
+        }
+
+        /* ✅ 对齐F盘：VOFA+发送三相电流 + 三相占空比（6个float）*/
+        BSP_UART_VOFA_SendFloats(ia_val, ib_val, ic_val, duty_a_val, duty_b_val, duty_c_val);
     }
 
     /* CAN send test (500ms) */

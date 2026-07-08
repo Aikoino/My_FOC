@@ -31,7 +31,6 @@ extern "C" {
 /* ========== 控制模式选择 ========== */
 typedef enum {
     MODE_VF_OPENLOOP      = 0,   /* VF压频比开环 */
-    MODE_IF_OPENLOOP      = 1,   /* IF流频比开环 */
     MODE_Current_SINGLE   = 3,   /* 电流单闭环 */
     MODE_VelCur_DOUBLE    = 4,   /* 速度-电流串级闭环 */
     MODE_Sensor_Hall      = 6,   /* 有感霍尔 */
@@ -75,13 +74,17 @@ typedef struct {
     float Target_Id;                 /* d轴电流给定 */
     float Target_Iq;                 /* q轴电流给定 */
 
+    /* SVPWM占空比（用于VOFA+显示）*/
+    float duty_a, duty_b, duty_c;    /* U/V/W相占空比 (0-8000) */
+
     /* 电流采样零点校准 */
     float current_offset_u;          /* U相电流偏移 (A) */
     float current_offset_v;          /* V相电流偏移 (A) */
     float current_offset_w;          /* W相电流偏移 (A) */
 
     /* PID控制器 */
-    PID_Controller_t current_pid;    /* 电流环PID */
+    PID_Controller_t current_pid;    /* 电流环PID（Q轴）*/
+    PID_Controller_t current_pid_d;  /* 电流环PID（D轴）*/
     PID_Controller_t speed_pid;      /* 速度环PID */
 
     /* 状态标志 */

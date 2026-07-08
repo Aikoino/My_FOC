@@ -18,9 +18,12 @@
 #include "bsp_adc.h"
 #include "main.h"
 #include "MiniFOC/MiniFOC.h"   /* 添加：访问 foc 结构体 */
+#include "../bsp_hall.h"       /* 添加：访问霍尔句柄 */
 
 extern ADC_HandleTypeDef hadc1;
 extern ADC_HandleTypeDef hadc2;
+extern TIM_HandleTypeDef htim1;
+extern TIM_HandleTypeDef htim4;  /* TIM4霍尔传感器 */
 
 extern OPAMP_HandleTypeDef hopamp1;
 extern OPAMP_HandleTypeDef hopamp2;
@@ -107,6 +110,33 @@ void HAL_ADCEx_InjectedConvCpltCallback(ADC_HandleTypeDef *hadc)
         /* 在 ADC 中断中执行电流环（Hall 和 VF 模式）*/
         if (foc.motor_running) {
             MiniFOC_HighFreqLoop();
+        }
+
+        /* ========== 霍尔角度累加和校准（参考F盘文档）========== */
+        /* 判断当正转一周角度变成PHASE_SHIFT_ANGLE时，进行校准 */
+        if (HALL_Handle.MeasuredElAngle == PHASE_SHIFT_ANGLE && HALL_Handle.Direction == POSITIVE) {
+            /* 校准电角度 */
+            HALL_Handle.HallElAngle = HALL_Handle.MeasuredElAngle;
+            HALL_Handle.MeasuredElAngle = HALL_Handle.MeasuredElAngle + HALL_Handle.AvrElSpeedDpp;
+            HALL_Handle.HallElAngle = HALL_Handle.HallElAngle + HALL_Handle.AvrElSpeedDpp;
+        }
+        /* 反转校准 */
+        else if (HALL_Handle.MeasuredElAngle == PHASE_SHIFT_ANGLE + PI / 3.0f && HALL_Handle.Direction == NEGATIVE) {
+            HALL_Handle.HallElAngle = HALL_Handle.MeasuredElAngle;
+            HALL_Handle.MeasuredElAngle = HALL_Handle.MeasuredElAngle + HALL_Handle.AvrElSpeedDpp;
+            HALL_Handle.HallElAngle = HALL_Handle.HallElAngle + HALL_Handle.AvrElSpeedDpp;
+        }
+        /* 没有转动一圈时，对角度数据进行累加 */
+        else {
+            HALL_Handle.MeasuredElAngle = HALL_Handle.MeasuredElAngle + HALL_Handle.AvrElSpeedDpp;
+            HALL_Handle.HallElAngle = HALL_Handle.HallElAngle + HALL_Handle.AvrElSpeedDpp + HALL_Handle.DeltaAngle;
+        }
+
+        /* 限制电角度在0~2PI之间 */
+        if (HALL_Handle.HallElAngle < 0.0f) {
+            HALL_Handle.HallElAngle += 2.0f * PI;
+        } else if (HALL_Handle.HallElAngle > (2.0f * PI)) {
+            HALL_Handle.HallElAngle -= 2.0f * PI;
         }
     }
 }

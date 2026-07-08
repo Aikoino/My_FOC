@@ -16,8 +16,8 @@
 
 /* ========== 电机参数（根据你的实际电机修改）========== */
 
-/* 极对数 - 最常见的是7或8 */
-#define MOTOR_POLE_PAIRS     7
+/* 极对数 - LA034-040NN07A 为8极（4对极） */
+#define MOTOR_POLE_PAIRS     4
 
 /* 额定参数 */
 #define MOTOR_RATED_CURRENT  5.0f       /* 额定电流 (A) */

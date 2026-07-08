@@ -42,8 +42,8 @@
 /* 电机类型 */
 #define MOTOR_TYPE           MOTOR_PMSM    /* PMSM永磁同步电机 */
 
-/* 电机电气参数 - LA034 典型值 */
-#define MOTOR_POLE_PAIRS     7             /* 极对数 (14极) */
+/* 电机电气参数 - LA034 典型值（8极电机）*/
+#define MOTOR_POLE_PAIRS     4             /* 极对数 (8极) - ✅ 已修正 */
 #define MOTOR_RATED_CURRENT  4.5f          /* 额定电流 (A) */
 #define MOTOR_RATED_SPEED    3000.0f       /* 额定转速 (rpm) */
 #define MOTOR_MAX_SPEED      5000.0f       /* 最大转速 (rpm) */

@@ -45,7 +45,7 @@ extern "C" {
 /* PI常量 */
 #define PI         3.1415926535f
 #define PHASE_SHIFT_ANGLE (float)(218.0f/360.0f*2.0f*PI)
-#define MOTOR_POLE_PAIRS   7  /* 电机极对数（与 MiniFOC_Config.h 保持一致）*/
+#define MOTOR_POLE_PAIRS   4  /* 电机极对数（与 MiniFOC_Config.h 保持一致）*/
 
 /**
   * @brief  霍尔传感器数据结构体

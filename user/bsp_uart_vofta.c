@@ -40,13 +40,15 @@ void BSP_UART_VOFA_Init(void)
 
 /**
   * @brief  通过串口发送六个浮点数到 VOFA+ (JustFloat协议)
-  * @param  a: 参数 A (U相电流)
-  * @param  b: 参数 B (V相电流)
-  * @param  c: 参数 C (W相电流)
-  * @param  d: 参数 D (CCR1占空比)
-  * @param  e: 参数 E (CCR2占空比)
-  * @param  f: 参数 F (CCR3占空比)
+  * @param  a: 参数 A (U相电流 Ia)
+  * @param  b: 参数 B (V相电流 Ib)
+  * @param  c: 参数 C (W相电流 Ic)
+  * @param  d: 参数 D (U相占空比 duty_a)
+  * @param  e: 参数 E (V相占空比 duty_b)
+  * @param  f: 参数 F (W相占空比 duty_c)
   * @retval HAL_StatusTypeDef: HAL_OK=成功, HAL_ERROR=失败
+  *
+  * ✅ 对齐F盘工程格式：三相电流 + 三相占空比（共6个float）
   *
   * JustFloat协议格式：
   * - 6个 float，小端格式，每个4字节 = 24字节

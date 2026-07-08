@@ -230,8 +230,7 @@ void TIM4_IRQHandler(void)
   /* USER CODE END TIM4_IRQn 0 */
   HAL_TIM_IRQHandler(&htim4);
   /* USER CODE BEGIN TIM4_IRQn 1 */
-  /* 霍尔传感器中断回调 */
-  BSP_Hall_TIM4_CaptureCallback();
+
   /* USER CODE END TIM4_IRQn 1 */
 }
 void ADC1_2_IRQHandler(void)
