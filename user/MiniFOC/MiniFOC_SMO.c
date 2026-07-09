@@ -463,8 +463,8 @@ void MiniFOC_Sensorless_Loop(float I_alpha, float I_beta,
 
             MiniFOC_SMO_Loop(&sensorless.smo);
 
-            /* 2. 计算PLL误差 */
-            pll_angle = sensorless.pll.go.OutRe;
+            /* 2. 计算PLL误差（关键：乘以极对数！）*/
+            pll_angle = sensorless.pll.go.OutRe * MOTOR_POLE_PAIRS;  /* ← 乘以极对数 */
             fast_sin_cos(pll_angle, &sine, &cosine);
 
             pll_error = -(sensorless.smo.alpha.Output_Ex * cosine +
@@ -502,8 +502,8 @@ void MiniFOC_Sensorless_Loop(float I_alpha, float I_beta,
 
             MiniFOC_SMO_Loop(&sensorless.smo);
 
-            /* 2. 计算PLL误差 */
-            fast_sin_cos(sensorless.pll.go.OutRe, &sine, &cosine);
+            /* 2. 计算PLL误差（关键：乘以极对数！）*/
+            fast_sin_cos(sensorless.pll.go.OutRe * MOTOR_POLE_PAIRS, &sine, &cosine);
 
             pll_error = -(sensorless.smo.alpha.Output_Ex * cosine +
                           sensorless.smo.beta.Output_Ex * sine);
