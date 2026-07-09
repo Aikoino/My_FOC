@@ -334,8 +334,7 @@ void MiniFOC_CurrentLoop(void)
             /* Mode 1: SMO无感电流环 */
             foc.Target_Iq = foc.target_current;
         } else if (foc.mode == MODE_Sensorless_S) {
-            /* Mode 2: SMO无感速度环（Target_Iq 由速度环更新）*/
-            foc.Target_Iq = foc.Target_Iq;
+            /* Mode 2: SMO无感速度环（Target_Iq 由速度环更新，这里不需要设置）*/
         }
 
         foc.Ud = 0.0f;
@@ -388,7 +387,7 @@ void MiniFOC_MainLoop(void)
 
 void MiniFOC_SpeedLoop(void)
 {
-    if (foc.mode != MODE_VelCur_DOUBLE && foc.mode != MODE_Sensor_Hall_S) return;
+    if (foc.mode != MODE_VelCur_DOUBLE && foc.mode != MODE_Sensor_Hall_S && foc.mode != MODE_Sensorless_S) return;
 
     if (++speed_loop_count >= SPEED_LOOP_DIVIDER) {
         speed_loop_count = 0;
@@ -454,6 +453,16 @@ void MiniFOC_MotorEnable(bool enable)
 
         foc.Target_Id = 0.0f;
         foc.Target_Iq = foc.target_current;
+
+        /* SMO无感模式：设置IF启动参数 */
+        if (foc.mode == MODE_Sensorless_I || foc.mode == MODE_Sensorless_S) {
+            sensorless.if_target_speed = foc.target_speed;  /* IF启动速度 = 目标速度 */
+            sensorless.if_iq_setpoint = SMO_IF_IQ_SETPOINT;  /* IF启动电流 */
+            sensorless.state = SENSORLESS_STATE_IF_STARTUP;  /* 重置状态机 */
+            sensorless.state_transition_tick = 0;
+            sensorless.smo_gain = 0.0f;
+        }
+
         foc.current_pid.run.Ref = foc.Target_Iq;
         foc.current_pid_d.run.Ref = 0.0f;
 
