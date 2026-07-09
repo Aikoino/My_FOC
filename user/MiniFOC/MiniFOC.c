@@ -102,9 +102,21 @@ void MiniFOC_VF_Step(void)
     if (vf_voltage < 5.0f) vf_voltage = 5.0f;
     if (vf_freq < 5.0f) vf_freq = 5.0f;
 
+    /*  关键修复：强制确保电压足够大 */
     float vbus_actual = (foc.bus_voltage > 20.0f) ? foc.bus_voltage : 24.0f;
     if (vf_voltage > vbus_actual * 0.9f) {
         vf_voltage = vbus_actual * 0.9f;
+    }
+
+    /*  调试：打印VF参数 */
+    extern UART_HandleTypeDef huart3;
+    static uint32_t vf_debug_cnt = 0;
+    vf_debug_cnt++;
+    if (vf_debug_cnt <= 5) {
+        char buf[128];
+        int len = sprintf(buf, "[VF_DEBUG] freq=%.1f volt=%.1f vbus=%.1f\r\n",
+                         vf_freq, vf_voltage, vbus_actual);
+        HAL_UART_Transmit(&huart3, (uint8_t*)buf, len, 10);
     }
 
     foc.vf_elec_angle += 2.0f * 3.14159f * vf_freq * CURRENT_LOOP_T;
