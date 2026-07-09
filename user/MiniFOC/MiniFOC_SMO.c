@@ -406,6 +406,23 @@ void MiniFOC_Sensorless_Loop(float I_alpha, float I_beta,
 
     loop_cnt++;
 
+    /* ========== 调试输出（每10000次，约0.5秒）========== */
+    if (loop_cnt % 10000 == 0) {
+        extern UART_HandleTypeDef huart3;
+        char buf[256];
+        int len = sprintf(buf, "[SMO_DEBUG] State=%d IF_Angle=%.2f IF_We=%.2f "
+                               "PLL_Angle=%.2f PLL_We=%.2f "
+                               "SMO_Gain=%.3f LoopCnt=%lu\r\n",
+                         sensorless.state,
+                         sensorless.if_elec_angle * 180.0f / M_PI,
+                         sensorless.if_we,
+                         sensorless.pll.go.OutRe * 180.0f / M_PI,
+                         sensorless.pll.go.OutWe,
+                         sensorless.smo_gain,
+                         loop_cnt);
+        HAL_UART_Transmit(&huart3, (uint8_t*)buf, len, 10);
+    }
+
     /* ========== 状态机处理 ========== */
     switch (sensorless.state) {
         case SENSORLESS_STATE_IF_STARTUP:
