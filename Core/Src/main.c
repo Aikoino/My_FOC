@@ -215,8 +215,8 @@ int main(void)
                             MiniFOC_SetMode(MODE_VF_OPENLOOP);
                             MiniFOC_SetTargetSpeed(800.0f);
                         } else if (use_hall_mode == 1) {
-                            /* 速度-电流双闭环模式（800rpm，VF开环角度+速度环）*/
-                            MiniFOC_SetMode(MODE_VelCur_DOUBLE);
+                            /* SMO无感速度环模式（800rpm，无感角度+速度环）*/
+                            MiniFOC_SetMode(MODE_Sensorless_S);
                             MiniFOC_SetTargetSpeed(800.0f);
                         } else if (use_hall_mode == 2) {
                             /* 霍尔电流环模式（5A，霍尔角度，电流闭环）*/

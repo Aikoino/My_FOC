@@ -20,6 +20,7 @@
 #include "../bsp_hall.h"
 #include "MiniFOC_Transform.h"
 #include "MiniFOC_SVPWM.h"
+#include "MiniFOC_SMO.h"
 #include "stm32g4xx_hal.h"
 #include <string.h>
 
@@ -82,6 +83,9 @@ void MiniFOC_Init(void)
     foc.duty_a = 0.0f;
     foc.duty_b = 0.0f;
     foc.duty_c = 0.0f;
+
+    /* 初始化无感观测器SMO */
+    MiniFOC_Sensorless_Init();
 
     TIM1->CCR1 = 0; TIM1->CCR2 = 0; TIM1->CCR3 = 0;
 }
@@ -282,6 +286,74 @@ void MiniFOC_CurrentLoop(void)
         /* 逆 Park + SVPWM */
         float Ualpha, Ubeta;
         ipark(&Ualpha, &Ubeta, foc.Ud, foc.Uq, foc.rotor_sine, foc.rotor_cosine);
+
+        uint32_t duty_a, duty_b, duty_c;
+        SVPWM_SaddleWave(Ualpha, Ubeta, foc.bus_voltage, &duty_a, &duty_b, &duty_c);
+
+        TIM1->CCR3 = duty_a;
+        TIM1->CCR2 = duty_b;
+        TIM1->CCR1 = duty_c;
+
+        foc.duty_a = (float)duty_a;
+        foc.duty_b = (float)duty_b;
+        foc.duty_c = (float)duty_c;
+    }
+
+    /* ========== SMO无感模式（无感角度）========== */
+    if (foc.mode == MODE_Sensorless_I || foc.mode == MODE_Sensorless_S) {
+        /* 读取三相电流 */
+        float Ia = foc.phase_current_u - foc.current_offset_u;
+        float Ib = foc.phase_current_v - foc.current_offset_v;
+        float Ic = -Ia - Ib;
+
+        /* Clarke 变换 */
+        float Ialpha, Ibeta;
+        clarke(&Ialpha, &Ibeta, Ia, Ib);
+
+        /* 计算电压（Ualpha/Ubeta - 需要从上一拍的Ud/Uq和角度计算）*/
+        float Ualpha, Ubeta;
+        float elec_angle = MiniFOC_Sensorless_GetAngle();
+        float sine = fast_sin(elec_angle);
+        float cosine = fast_cos(elec_angle);
+        ipark(&Ualpha, &Ubeta, foc.Ud, foc.Uq, sine, cosine);
+
+        /* 调用SMO无感观测器 */
+        MiniFOC_Sensorless_Loop(Ialpha, Ibeta, Ualpha, Ubeta);
+
+        /* 更新角度和速度 */
+        foc.rotor_angle = MiniFOC_Sensorless_GetAngle();
+        foc.rotor_speed = MiniFOC_Sensorless_GetSpeed();
+
+        /* Park 变换（使用SMO角度）*/
+        park(&foc.Id, &foc.Iq, Ialpha, Ibeta, fast_sin(foc.rotor_angle), fast_cos(foc.rotor_angle));
+
+        /* 电流环 PI 控制 */
+        foc.Target_Id = 0.0f;
+
+        if (foc.mode == MODE_Sensorless_I) {
+            /* Mode 1: SMO无感电流环 */
+            foc.Target_Iq = foc.target_current;
+        } else if (foc.mode == MODE_Sensorless_S) {
+            /* Mode 2: SMO无感速度环（Target_Iq 由速度环更新）*/
+            foc.Target_Iq = foc.Target_Iq;
+        }
+
+        foc.Ud = 0.0f;
+        foc.current_pid.run.Ref = foc.Target_Iq;
+        foc.current_pid.run.Fbk = foc.Iq;
+        foc.Uq = PID_Calc(&foc.current_pid);
+
+        /* 电压限幅 */
+        float Vmax = foc.bus_voltage * 0.95f;
+        float voltage_mag = sqrtf(foc.Ud * foc.Ud + foc.Uq * foc.Uq);
+        if (voltage_mag > Vmax) {
+            float ratio = Vmax / voltage_mag;
+            foc.Ud *= ratio;
+            foc.Uq *= ratio;
+        }
+
+        /* 逆 Park + SVPWM */
+        ipark(&Ualpha, &Ubeta, foc.Ud, foc.Uq, sine, cosine);
 
         uint32_t duty_a, duty_b, duty_c;
         SVPWM_SaddleWave(Ualpha, Ubeta, foc.bus_voltage, &duty_a, &duty_b, &duty_c);
