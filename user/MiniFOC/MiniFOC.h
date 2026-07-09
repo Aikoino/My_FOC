@@ -31,6 +31,8 @@ extern "C" {
 /* ========== 控制模式选择 ========== */
 typedef enum {
     MODE_VF_OPENLOOP      = 0,   /* VF压频比开环（开环角度） */
+    MODE_Sensorless_I     = 1,   /* SMO无感电流环（无感角度，电流闭环） */
+    MODE_Sensorless_S     = 2,   /* SMO无感速度环（无感角度+速度环） */
     MODE_Current_SINGLE   = 3,   /* 电流单闭环（VF角度） */
     MODE_VelCur_DOUBLE    = 4,   /* 速度-电流串级闭环（VF角度+速度环） */
     MODE_Sensor_Hall_I    = 6,   /* 霍尔电流环（霍尔角度，电流闭环） */

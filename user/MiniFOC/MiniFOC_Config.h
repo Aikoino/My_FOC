@@ -56,20 +56,22 @@
 
 /* ========== 无感观测器参数 ========== */
 
-/* 磁链观测器参数 */
-#define MOTOR_FLUX_LINKAGE      0.012f     /* 磁链 (Wb) - 典型值 */
-#define MOTOR_D_AXIS_INDUCTANCE 0.001f    /* D轴电感 (H) - 典型值 */
-#define MOTOR_Q_AXIS_INDUCTANCE 0.001f    /* Q轴电感 (H) - 典型值 */
+/* SMO滑模观测器 */
+#define SMO_GAIN               3.5f          /* 滑模解调增益 h */
+#define SMO_LPF_CUTOFF         10000.0f      /* 反电动势滤波截止频率 (rad/s) ≈ 1592Hz */
 
 /* PLL锁相环参数 */
-#define PLL_KP      20.0f                 /* PLL比例增益 */
-#define PLL_KI      200.0f                /* PLL积分增益 */
-#define PLL_SAMPLE_TIME  0.00005f         /* PLL采样周期 (s) = 20kHz */
+#define SMO_PLL_KP             150.0f        /* PLL比例增益 (原SguanFOC: 1131.2/极对数比) */
+#define SMO_PLL_KI             80000.0f      /* PLL积分增益 (原SguanFOC: 640000/极对数比) */
 
-/* 霍尔+无感切换策略 */
-#define OBSERVER_SWITCH_SPEED_LOW  100.0f   /* 切换到霍尔的最低转速 (rpm) */
-#define OBSERVER_SWITCH_SPEED_HIGH 200.0f   /* 切换到无感的最低转速 (rpm) */
-#define OBSERVER_SWITCH_HYSTERESIS 50.0f    /* 切换滞环 (rpm) */
+/* IF开环强拖启动 */
+#define SMO_IF_IQ_SETPOINT     2.0f          /* IF启动电流 (A) */
+#define SMO_IF_SPEED_RAMP      3000.0f       /* IF速度斜坡速率 (rpm/s) */
+
+/* SMO切换阈值 */
+#define SMO_SWITCH_SPEED_MIN   50.0f         /* 开始切换到SMO的最低转速 (rpm) */
+#define SMO_SWITCH_SPEED_MAX   100.0f        /* 完全切到SMO的转速 (rpm) */
+#define SMO_SWITCH_HYSTERESIS  20.0f         /* 切换滞环 (rpm) */
 
 /* ========== 控制参数 ========== */
 

@@ -326,6 +326,51 @@ void MiniFOC_Sensorless_Init(void)
     sensorless.prev_Ubeta = 0.0f;
 }
 
+/* ========== 辅助函数 ========== */
+
+/**
+  * @brief  根据速度计算增益（低速域→高速域的线性过渡）
+  * @param  gain: 输出增益指针 (0~1)
+  * @param  real_speed: 实际速度 (rpm)
+  * @param  abs_max: 完全切换到SMO的速度阈值 (rpm)
+  * @param  abs_min: 开始切换的速度阈值 (rpm)
+  * @retval 速度绝对值
+  *
+  * @note   速度在 [abs_min, abs_max] 区间内线性过渡：
+  *         gain = (|speed| - abs_min) / (abs_max - abs_min)
+  */
+void MiniFOC_Value_Gain_Get(float *gain, float real_speed, float abs_max, float abs_min)
+{
+    float abs_real = fabsf(real_speed);
+
+    if (abs_real <= abs_min) {
+        *gain = 0.0f;               /* 纯IF */
+    } else if (abs_real >= abs_max) {
+        *gain = 1.0f;               /* 纯SMO */
+    } else {
+        *gain = (abs_real - abs_min) / (abs_max - abs_min);  /* 线性过渡 */
+    }
+}
+
+/**
+  * @brief  角度积分（低速域虚拟角度生成）
+  * @param  Output: 输出角度 (rad)
+  * @param  Input: 输入角速度 (rpm)
+  * @param  Last_in: 上次输入速度
+  * @param  T: 采样周期 (s)
+  * @retval None
+  */
+void MiniFOC_Value_Rad_Loop(float *Output, float Input, float Last_in, float T)
+{
+    /* 一阶积分：angle += (we_elec + we_last) * T / 2 */
+    float we_elec = Input * (2.0f * PI * MOTOR_POLE_PAIRS / 60.0f);  /* rpm → rad/s电角 */
+    *Output += (we_elec + Last_in * (2.0f * PI * MOTOR_POLE_PAIRS / 60.0f)) * T / 2.0f;
+
+    /* 归一化到 [0, 2π) */
+    while (*Output >= 2.0f * PI) *Output -= 2.0f * PI;
+    while (*Output < 0.0f) *Output += 2.0f * PI;
+}
+
 /**
   * @brief  角度误差归一化到 [-π, π)
   * @param  error: 角度误差 (rad)
@@ -352,33 +397,112 @@ static float Normalize_Error(float error)
 void MiniFOC_Sensorless_Loop(float I_alpha, float I_beta,
                               float U_alpha, float U_beta)
 {
-    /* 1. 喂数据给SMO */
-    sensorless.smo.alpha.Input_Ix = I_alpha;
-    sensorless.smo.alpha.Input_Ux = U_alpha;
-    sensorless.smo.beta.Input_Ix  = I_beta;
-    sensorless.smo.beta.Input_Ux  = U_beta;
+    static uint32_t loop_cnt = 0;
+    static float last_speed = 0.0f;
 
-    /* SMO需要电角速度 (PLL的上一拍输出) */
-    sensorless.smo.Input_We = sensorless.pll.go.OutWe;
+    loop_cnt++;
 
-    /* 2. 运行SMO一步 */
-    MiniFOC_SMO_Loop(&sensorless.smo);
+    /* ========== 状态机处理 ========== */
+    switch (sensorless.state) {
+        case SENSORLESS_STATE_IF_STARTUP:
+            /* IF开环强拖：生成虚拟角度 */
+            if (sensorless.if_target_speed > 0.0f) {
+                /* IF角度递增（电角速度 = rpm → rad/s → 电角速度）*/
+                sensorless.if_we = sensorless.if_target_speed * (2.0f * PI * MOTOR_POLE_PAIRS / 60.0f);
+                sensorless.if_elec_angle += sensorless.if_we * CURRENT_LOOP_T;
 
-    /* 3. 计算PLL误差并运行PLL
-     *    Error = - (Ealpha*cos(θ) + Ebeta*sin(θ))
-     *    使PLL锁定到反电动势矢量的角度
-     */
-    float sine, cosine;
-    float pll_angle = sensorless.pll.go.OutRe;
-    fast_sin_cos(pll_angle, &sine, &cosine);
+                /* 归一化 */
+                while (sensorless.if_elec_angle >= 2.0f * PI) sensorless.if_elec_angle -= 2.0f * PI;
+                while (sensorless.if_elec_angle < 0.0f) sensorless.if_elec_angle += 2.0f * PI;
 
-    float pll_error = -(sensorless.smo.alpha.Output_Ex * cosine +
-                        sensorless.smo.beta.Output_Ex * sine);
+                /* 赋值给PLL（供外部调用MiniFOC_Sensorless_GetAngle()获取）*/
+                sensorless.pll.go.OutRe = sensorless.if_elec_angle;
+                sensorless.pll.go.OutWe = sensorless.if_we;
 
-    /* 归一化误差到 [-π, π) */
-    pll_error = Normalize_Error(pll_error);
+                /* 切换到SMO模式 */
+                if (loop_cnt % 10000 == 0) {  /* 每0.5秒检查一次 */
+                    sensorless.state = SENSORLESS_STATE_SMO_LOCKING;
+                    sensorless.state_transition_tick = loop_cnt;
+                    sensorless.smo_gain = 0.0f;  /* 开始融合 */
+                }
+            }
+            break;
 
-    MiniFOC_PLL_Loop(&sensorless.pll, pll_error, 0);
+        case SENSORLESS_STATE_SMO_LOCKING:
+            /* SMO+PLL锁定中：IF和SMO角度融合 */
+
+            /* 1. 运行SMO+PLL */
+            sensorless.smo.alpha.Input_Ix = I_alpha;
+            sensorless.smo.alpha.Input_Ux = U_alpha;
+            sensorless.smo.beta.Input_Ix  = I_beta;
+            sensorless.smo.beta.Input_Ux  = U_beta;
+            sensorless.smo.Input_We = sensorless.pll.go.OutWe;
+
+            MiniFOC_SMO_Loop(&sensorless.smo);
+
+            /* 2. 计算PLL误差 */
+            float sine, cosine;
+            float pll_angle = sensorless.pll.go.OutRe;
+            fast_sin_cos(pll_angle, &sine, &cosine);
+
+            float pll_error = -(sensorless.smo.alpha.Output_Ex * cosine +
+                                sensorless.smo.beta.Output_Ex * sine);
+            pll_error = Normalize_Error(pll_error);
+
+            MiniFOC_PLL_Loop(&sensorless.pll, pll_error, 0);
+
+            /* 3. 计算SMO权重（基于速度的线性过渡）*/
+            MiniFOC_Value_Gain_Get(&sensorless.smo_gain,
+                                   sensorless.pll.go.OutWe * 60.0f / (2.0f * PI * MOTOR_POLE_PAIRS),  /* rad/s → rpm */
+                                   sensorless.switch_speed_max,
+                                   sensorless.switch_speed_min);
+
+            /* 4. 角度融合（混合IF和SMO）*/
+            sensorless.pll.go.OutRe = sensorless.if_elec_angle * (1.0f - sensorless.smo_gain) +
+                                      sensorless.pll.go.OutRe * sensorless.smo_gain;
+
+            /* 5. 切换到闭环 */
+            if (sensorless.smo_gain >= 0.99f ||
+                (loop_cnt - sensorless.state_transition_tick > 50000)) {  /* 超时强制切换 */
+                sensorless.state = SENSORLESS_STATE_CLOSED_LOOP;
+            }
+            break;
+
+        case SENSORLESS_STATE_CLOSED_LOOP:
+            /* SMO闭环运行 */
+
+            /* 1. 运行SMO+PLL */
+            sensorless.smo.alpha.Input_Ix = I_alpha;
+            sensorless.smo.alpha.Input_Ux = U_alpha;
+            sensorless.smo.beta.Input_Ix  = I_beta;
+            sensorless.smo.beta.Input_Ux  = U_beta;
+            sensorless.smo.Input_We = sensorless.pll.go.OutWe;
+
+            MiniFOC_SMO_Loop(&sensorless.smo);
+
+            /* 2. 计算PLL误差 */
+            fast_sin_cos(sensorless.pll.go.OutRe, &sine, &cosine);
+
+            pll_error = -(sensorless.smo.alpha.Output_Ex * cosine +
+                          sensorless.smo.beta.Output_Ex * sine);
+            pll_error = Normalize_Error(pll_error);
+
+            MiniFOC_PLL_Loop(&sensorless.pll, pll_error, 0);
+
+            /* 3. 速度过低时切回IF模式（滞环判断）*/
+            float current_speed = sensorless.pll.go.OutWe * 60.0f / (2.0f * PI * MOTOR_POLE_PAIRS);
+            if (fabsf(current_speed) < (sensorless.switch_speed_min - sensorless.switch_speed_hyst)) {
+                sensorless.state = SENSORLESS_STATE_SMO_LOCKING;
+                sensorless.state_transition_tick = loop_cnt;
+            }
+            break;
+
+        default:
+            sensorless.state = SENSORLESS_STATE_IF_STARTUP;
+            break;
+    }
+
+    last_speed = sensorless.pll.go.OutWe;
 }
 
 /**
@@ -396,8 +520,8 @@ float MiniFOC_Sensorless_GetAngle(void)
   */
 float MiniFOC_Sensorless_GetSpeed(void)
 {
-    /* OutWe 是电角速度 (rad/s) → 机械角速度 (rad/s) → RPM */
-    float mech_rad_s = sensorless.high_speed_we;  /* 机械角速度 */
+    /* OutWe 是电角速度 (rad/s) → 除以极对数 → 机械角速度 (rad/s) → RPM */
+    float mech_rad_s = sensorless.pll.go.OutWe / (float)MOTOR_POLE_PAIRS;
     return mech_rad_s * 60.0f / 6.2831853f;       /* rad/s → RPM */
 }
 

@@ -119,10 +119,13 @@ typedef struct {
 
     /* 状态机 */
     MiniFOC_SensorlessState_t state;
-    float if_target_speed;              /* IF开环目标转速 (rad/s机械) */
+    uint32_t state_transition_tick;     /* 状态切换计时 */
+
+    /* IF开环启动 */
+    float if_target_speed;              /* IF开环目标转速 (rpm) */
     float if_elec_angle;                /* IF虚拟电角度 (rad) */
     float if_iq_setpoint;               /* IF开环Iq电流 (A) */
-    uint32_t state_transition_tick;     /* 状态切换计时 */
+    float if_we;                        /* IF开环角速度 (rad/s电角) */
 
     /* 角度融合 */
     float smo_gain;                     /* SMO权重 0~1 (0=纯IF, 1=纯SMO) */
@@ -131,9 +134,9 @@ typedef struct {
     float high_speed_angle;             /* 高速域SMO角度 */
     float high_speed_we;                /* 高速域SMO角速度 */
 
-    /* 切换阈值 */
-    float switch_speed_min;             /* 切换到SMO的最低速度 (rad/s机械) */
-    float switch_speed_max;             /* 完全切到SMO的速度 (rad/s机械) */
+    /* 切换阈值 (rpm 机械转速) */
+    float switch_speed_min;             /* 开始切换到SMO的最低转速 */
+    float switch_speed_max;             /* 完全切到SMO的转速 */
     float switch_speed_hyst;            /* 切换滞环 */
 
     /* 上一拍电压 (用于SMO迭代) */
