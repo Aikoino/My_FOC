@@ -207,6 +207,10 @@ void MiniFOC_PLL_Loop(MiniFOC_PLL_Controller_t *pll, float error, uint8_t positi
     pll->go.OutWe += pll->go.X_num[0] * pll->go.Error +
                      pll->go.X_num[1] * pll->go.We_i;
 
+    /* 限幅：防止PLL速度过大（±5000 rad/s）*/
+    if (pll->go.OutWe > 5000.0f) pll->go.OutWe = 5000.0f;
+    if (pll->go.OutWe < -5000.0f) pll->go.OutWe = -5000.0f;
+
     /* 2. 积分器 → 输出电角度 */
     pll->go.OutRe += pll->go.Y_num * (pll->go.OutWe + pll->go.Re_i);
 
@@ -409,7 +413,7 @@ void MiniFOC_Sensorless_Loop(float I_alpha, float I_beta,
     loop_cnt++;
 
     /* ========== 调试输出（每10000次，约0.5秒）========== */
-    if (loop_cnt % 10000 == 0) {
+    if (loop_cnt % 40000 == 0) {
         extern UART_HandleTypeDef huart3;
         char buf[256];
         int len = sprintf(buf, "[SMO_DEBUG] State=%d IF_Angle=%.2f IF_We=%.2f "
@@ -443,7 +447,7 @@ void MiniFOC_Sensorless_Loop(float I_alpha, float I_beta,
                 sensorless.pll.go.OutWe = sensorless.if_we;
 
                 /* 切换到SMO模式 */
-                if (loop_cnt % 10000 == 0) {  /* 每0.5秒检查一次 */
+                if (loop_cnt % 40000 == 0) {  /* 每0.5秒检查一次 */
                     sensorless.state = SENSORLESS_STATE_SMO_LOCKING;
                     sensorless.state_transition_tick = loop_cnt;
                     sensorless.smo_gain = 0.0f;  /* 开始融合 */
