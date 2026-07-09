@@ -60,12 +60,12 @@
 /* ========== 无感观测器参数 ========== */
 
 /* SMO滑模观测器 */
-#define SMO_GAIN               1.5f          /* 滑模解调增益 h (降低，防止过振荡) */
+#define SMO_GAIN               2.5f          /* 滑模解调增益 h */
 #define SMO_LPF_CUTOFF         10000.0f      /* 反电动势滤波截止频率 (rad/s) ≈ 1592Hz */
 
 /* PLL锁相环参数 */
-#define SMO_PLL_KP             80.0f         /* PLL比例增益 (降低，提高稳定性) */
-#define SMO_PLL_KI             30000.0f      /* PLL积分增益 (降低，防止振荡) */
+#define SMO_PLL_KP             600.0f        /* PLL比例增益 (参考SguanFOC 4极对电机) */
+#define SMO_PLL_KI             200000.0f     /* PLL积分增益 (参考SguanFOC 4极对电机) */
 
 /* IF开环强拖启动 */
 #define SMO_IF_IQ_SETPOINT     2.0f          /* IF启动电流 (A) */
