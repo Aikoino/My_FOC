@@ -17,6 +17,8 @@
 #include "MiniFOC_SMO.h"
 #include "MiniFOC_Config.h"
 #include "MiniFOC_Transform.h"
+#include "stm32g4xx_hal.h"
+#include <stdio.h>
 #include <string.h>
 
 /* ========== 局部宏定义（如果MiniFOC_Config.h中未定义）========== */
