@@ -330,11 +330,15 @@ void MiniFOC_CurrentLoop(void)
         /* 电流环 PI 控制 */
         foc.Target_Id = 0.0f;
 
-        if (foc.mode == MODE_Sensorless_I) {
+        /* ✅ 关键修复：IF启动阶段强制设置启动电流 */
+        if (sensorless.state == SENSORLESS_STATE_IF_STARTUP) {
+            foc.Target_Iq = SMO_IF_IQ_SETPOINT;  /* IF启动电流 = 2A */
+        } else if (foc.mode == MODE_Sensorless_I) {
             /* Mode 1: SMO无感电流环 */
             foc.Target_Iq = foc.target_current;
         } else if (foc.mode == MODE_Sensorless_S) {
-            /* Mode 2: SMO无感速度环（Target_Iq 由速度环更新，这里不需要设置）*/
+            /* Mode 2: SMO无感速度环（Target_Iq 由速度环更新）*/
+            // Target_Iq 已经在SpeedLoop()中设置
         }
 
         foc.Ud = 0.0f;
