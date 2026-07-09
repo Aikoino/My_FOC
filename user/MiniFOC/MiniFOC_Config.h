@@ -53,6 +53,9 @@
 /* 电机电阻/电感 - LA034 典型值 */
 #define MOTOR_PHASE_RESISTANCE  0.5f       /* 相电阻 (Ω) - 保守值 */
 #define MOTOR_PHASE_INDUCTANCE  0.001f     /* 相电感 (H) - 保守值 */
+#define MOTOR_D_AXIS_INDUCTANCE 0.001f    /* D轴电感 (H) */
+#define MOTOR_Q_AXIS_INDUCTANCE 0.001f    /* Q轴电感 (H) */
+#define MOTOR_FLUX_LINKAGE      0.012f     /* 磁链 (Wb) */
 
 /* ========== 无感观测器参数 ========== */
 

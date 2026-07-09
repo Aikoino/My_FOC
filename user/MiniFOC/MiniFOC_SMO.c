@@ -24,6 +24,10 @@
 #define CURRENT_LOOP_T      0.00005f
 #endif
 
+#ifndef M_PI
+#define M_PI                3.14159265358979323846f
+#endif
+
 #ifndef SMO_GAIN
 #define SMO_GAIN            3.5f
 #endif
@@ -363,12 +367,12 @@ void MiniFOC_Value_Gain_Get(float *gain, float real_speed, float abs_max, float 
 void MiniFOC_Value_Rad_Loop(float *Output, float Input, float Last_in, float T)
 {
     /* 一阶积分：angle += (we_elec + we_last) * T / 2 */
-    float we_elec = Input * (2.0f * PI * MOTOR_POLE_PAIRS / 60.0f);  /* rpm → rad/s电角 */
-    *Output += (we_elec + Last_in * (2.0f * PI * MOTOR_POLE_PAIRS / 60.0f)) * T / 2.0f;
+    float we_elec = Input * (2.0f * M_PI * MOTOR_POLE_PAIRS / 60.0f);  /* rpm → rad/s电角 */
+    *Output += (we_elec + Last_in * (2.0f * M_PI * MOTOR_POLE_PAIRS / 60.0f)) * T / 2.0f;
 
     /* 归一化到 [0, 2π) */
-    while (*Output >= 2.0f * PI) *Output -= 2.0f * PI;
-    while (*Output < 0.0f) *Output += 2.0f * PI;
+    while (*Output >= 2.0f * M_PI) *Output -= 2.0f * M_PI;
+    while (*Output < 0.0f) *Output += 2.0f * M_PI;
 }
 
 /**
@@ -398,7 +402,7 @@ void MiniFOC_Sensorless_Loop(float I_alpha, float I_beta,
                               float U_alpha, float U_beta)
 {
     static uint32_t loop_cnt = 0;
-    static float last_speed = 0.0f;
+    float sine, cosine, pll_error, pll_angle, current_speed;
 
     loop_cnt++;
 
@@ -408,12 +412,12 @@ void MiniFOC_Sensorless_Loop(float I_alpha, float I_beta,
             /* IF开环强拖：生成虚拟角度 */
             if (sensorless.if_target_speed > 0.0f) {
                 /* IF角度递增（电角速度 = rpm → rad/s → 电角速度）*/
-                sensorless.if_we = sensorless.if_target_speed * (2.0f * PI * MOTOR_POLE_PAIRS / 60.0f);
+                sensorless.if_we = sensorless.if_target_speed * (2.0f * M_PI * MOTOR_POLE_PAIRS / 60.0f);
                 sensorless.if_elec_angle += sensorless.if_we * CURRENT_LOOP_T;
 
                 /* 归一化 */
-                while (sensorless.if_elec_angle >= 2.0f * PI) sensorless.if_elec_angle -= 2.0f * PI;
-                while (sensorless.if_elec_angle < 0.0f) sensorless.if_elec_angle += 2.0f * PI;
+                while (sensorless.if_elec_angle >= 2.0f * M_PI) sensorless.if_elec_angle -= 2.0f * M_PI;
+                while (sensorless.if_elec_angle < 0.0f) sensorless.if_elec_angle += 2.0f * M_PI;
 
                 /* 赋值给PLL（供外部调用MiniFOC_Sensorless_GetAngle()获取）*/
                 sensorless.pll.go.OutRe = sensorless.if_elec_angle;
@@ -441,19 +445,18 @@ void MiniFOC_Sensorless_Loop(float I_alpha, float I_beta,
             MiniFOC_SMO_Loop(&sensorless.smo);
 
             /* 2. 计算PLL误差 */
-            float sine, cosine;
-            float pll_angle = sensorless.pll.go.OutRe;
+            pll_angle = sensorless.pll.go.OutRe;
             fast_sin_cos(pll_angle, &sine, &cosine);
 
-            float pll_error = -(sensorless.smo.alpha.Output_Ex * cosine +
-                                sensorless.smo.beta.Output_Ex * sine);
+            pll_error = -(sensorless.smo.alpha.Output_Ex * cosine +
+                          sensorless.smo.beta.Output_Ex * sine);
             pll_error = Normalize_Error(pll_error);
 
             MiniFOC_PLL_Loop(&sensorless.pll, pll_error, 0);
 
             /* 3. 计算SMO权重（基于速度的线性过渡）*/
             MiniFOC_Value_Gain_Get(&sensorless.smo_gain,
-                                   sensorless.pll.go.OutWe * 60.0f / (2.0f * PI * MOTOR_POLE_PAIRS),  /* rad/s → rpm */
+                                   sensorless.pll.go.OutWe * 60.0f / (2.0f * M_PI * MOTOR_POLE_PAIRS),  /* rad/s → rpm */
                                    sensorless.switch_speed_max,
                                    sensorless.switch_speed_min);
 
@@ -490,7 +493,7 @@ void MiniFOC_Sensorless_Loop(float I_alpha, float I_beta,
             MiniFOC_PLL_Loop(&sensorless.pll, pll_error, 0);
 
             /* 3. 速度过低时切回IF模式（滞环判断）*/
-            float current_speed = sensorless.pll.go.OutWe * 60.0f / (2.0f * PI * MOTOR_POLE_PAIRS);
+            current_speed = sensorless.pll.go.OutWe * 60.0f / (2.0f * M_PI * MOTOR_POLE_PAIRS);
             if (fabsf(current_speed) < (sensorless.switch_speed_min - sensorless.switch_speed_hyst)) {
                 sensorless.state = SENSORLESS_STATE_SMO_LOCKING;
                 sensorless.state_transition_tick = loop_cnt;
@@ -501,8 +504,6 @@ void MiniFOC_Sensorless_Loop(float I_alpha, float I_beta,
             sensorless.state = SENSORLESS_STATE_IF_STARTUP;
             break;
     }
-
-    last_speed = sensorless.pll.go.OutWe;
 }
 
 /**
