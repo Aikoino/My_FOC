@@ -17,7 +17,6 @@
   ******************************************************************************
   */
 /* USER CODE END Header */
-
 /* Define to prevent recursive inclusion -------------------------------------*/
 #ifndef __DMA_H__
 #define __DMA_H__
@@ -50,3 +49,4 @@ void MX_DMA_Init(void);
 #endif
 
 #endif /* __DMA_H__ */
+

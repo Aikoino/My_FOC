@@ -31,21 +31,18 @@ extern "C" {
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "dma.h"
-#include "multi_button.h"
-#include "button_app.h"
-#include "adc.h"
-#include "opamp.h"
-#include "usart.h"
-#include "fdcan.h"
-#include "tim.h"
-#include "bsp_motor.h"
-#include "motor_cmd.h"
+#define USE_MODE 1
+#include "string.h"
+#include <stdio.h>
+#if (USE_MODE==0)
+#include "VFMode.h"
+#elif (USE_MODE==1)
+#endif
 /* USER CODE END Includes */
 
 /* Exported types ------------------------------------------------------------*/
 /* USER CODE BEGIN ET */
-
+extern volatile uint8_t uart_tx_flag;
 /* USER CODE END ET */
 
 /* Exported constants --------------------------------------------------------*/
@@ -55,16 +52,7 @@ extern "C" {
 
 /* Exported macro ------------------------------------------------------------*/
 /* USER CODE BEGIN EM */
-extern FDCAN_HandleTypeDef hfdcan1;
-extern FDCAN_RxHeaderTypeDef RxHeader;
-extern FDCAN_TxHeaderTypeDef TxHeader;
-extern TIM_HandleTypeDef htim1;
-extern ADC_HandleTypeDef hadc1;
-extern ADC_HandleTypeDef hadc2;
-extern UART_HandleTypeDef huart3;
-extern OPAMP_HandleTypeDef hopamp1;
-extern OPAMP_HandleTypeDef hopamp2;
-extern OPAMP_HandleTypeDef hopamp3;
+
 /* USER CODE END EM */
 
 /* Exported functions prototypes ---------------------------------------------*/

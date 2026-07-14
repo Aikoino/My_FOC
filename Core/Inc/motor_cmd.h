@@ -86,10 +86,10 @@ typedef enum {
 #define DEFAULT_SPEED_KP        0.5f    // 速度环 Kp
 #define DEFAULT_SPEED_KI        0.1f    // 速度环 Ki
 // DEFAULT_CURRENT_KP / DEFAULT_CURRENT_KI 定义在 MiniFOC_Config.h 中，此处省略
-#define DEFAULT_FLUX            0.012f  // 磁链常数
-#define DEFAULT_RESISTANCE      0.5f    // 相电阻 (Ohm)
-#define DEFAULT_INDUCTANCE      0.001f  // 相电感 (H)
-#define DEFAULT_POLE_PAIRS      7       // 极对数
+#define DEFAULT_FLUX            0.016884f  // 磁链常数 - 参考模型验证值
+#define DEFAULT_RESISTANCE      6.97f      // 相电阻 (Ohm) - 参考模型验证值
+#define DEFAULT_INDUCTANCE      0.00535f   // 相电感 (H) - 参考模型验证值
+#define DEFAULT_POLE_PAIRS      2          // 极对数 - 参考模型验证值
 #define DEFAULT_OPENLOOP_SPD    1000    // 开环强拖速度 (RPM)
 #define DEFAULT_VBUS_MAX        450     // 母线电压上限 (0.1V) = 45.0V
 #define DEFAULT_VBUS_MIN        250     // 母线电压下限 (0.1V) = 25.0V

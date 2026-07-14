@@ -29,12 +29,31 @@ extern "C" {
 #include "main.h"
 
 /* USER CODE BEGIN Includes */
-
+#include "opamp.h"
+#include "usart.h"
+#include "gpio.h"
+#include "tim.h"
+#include "button_app.h"
+#include "BSP_ADC.h"
+#include "fcan_ctl.h"
+#include "hall_sensor.h"
+#if (USE_MODE==0)
+#include "VFMode.h"
+#elif (USE_MODE==1)
+#include "FOC_Model.h"
+#endif
 /* USER CODE END Includes */
 
 extern ADC_HandleTypeDef hadc1;
 
 extern ADC_HandleTypeDef hadc2;
+
+/* USER CODE BEGIN Private defines */
+
+	
+
+
+/* USER CODE END Private defines */
 
 void MX_ADC1_Init(void);
 void MX_ADC2_Init(void);
@@ -48,3 +67,4 @@ void MX_ADC2_Init(void);
 #endif
 
 #endif /* __ADC_H__ */
+

@@ -29,14 +29,15 @@ extern "C" {
 #include "main.h"
 
 /* USER CODE BEGIN Includes */
-
+#include "adc.h"
+#include "BSP_ADC.h"
+#include "fcan_ctl.h"
+#include "hall_sensor.h"
 /* USER CODE END Includes */
 
 extern FDCAN_HandleTypeDef hfdcan1;
 
 /* USER CODE BEGIN Private defines */
-extern FDCAN_TxHeaderTypeDef TxHeader;
-extern FDCAN_RxHeaderTypeDef RxHeader;
 
 /* USER CODE END Private defines */
 
